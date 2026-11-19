@@ -1,121 +1,141 @@
-// generate.mjs — README profil dengan ular 3D di atas terrain kontribusi
-// Desain: isometric-ish 3D blocks, tanpa terminal chrome.
-// Data kontribusi diambil dari contrib.json (hasil fetch-contrib.mjs).
+// generate.mjs — README profil, tema Ghost Task Matrix (neobrutalism)
+// Palet, font, border, dan hard-shadow diambil persis dari
+// https://belliond.github.io/task-vault/style.css (:root)
 
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
 
 const contrib = JSON.parse(readFileSync("contrib.json", "utf8"));
 
-/* ───────────────────────── PALET ───────────────────────── */
+/* ─────────────────────── TOKEN DESAIN ─────────────────────── */
+// Disalin dari :root milik task-vault, tanpa perubahan nilai.
 
-const THEMES = {
-  dark: {
-    bg: "#08060f",
-    bg2: "#0e0a1f",
-    gridEmpty: "#1b1832",
-    gridEmptyEdge: "#241f42",
-    levels: ["#1b1832", "#332a63", "#54409e", "#8b5cf6", "#c4b5fd"],
-    text: "#f1f5f9",
-    muted: "#8b93b0",
-    dim: "#5a6080",
-    accent: "#22d3ee",
-    accentDim: "#0e7490",
-    snakeHead: "#67e8f9",
-    snakeTail: "#4338ca",
-    pillBg: "#12102a",
-    pillEdge: "#2a2450",
-    glow: true,
-  },
-  light: {
-    bg: "#ffffff",
-    bg2: "#f7f5ff",
-    gridEmpty: "#efeaf9",
-    gridEmptyEdge: "#e2dcf3",
-    levels: ["#efeaf9", "#c4b2f2", "#9478e8", "#6d3fd4", "#43148f"],
-    text: "#1a1625",
-    muted: "#5c5675",
-    dim: "#8b85a3",
-    accent: "#0891b2",
-    accentDim: "#67e8f9",
-    snakeHead: "#0891b2",
-    snakeTail: "#3b0f7a",
-    pillBg: "#f4f2fc",
-    pillEdge: "#ddd7f0",
-    glow: false,
-  },
+const T = {
+  bg: "#050a08",
+  bgSecondary: "rgba(11,20,16,0.88)",
+  panel: "rgba(14,26,21,0.84)",
+  panelRaised: "rgba(18,33,26,0.88)",
+
+  green: "#4dffb2",
+  greenDark: "#19d991",
+  greenSoft: "rgba(77,255,178,0.12)",
+  cyan: "#4fe6ff",
+
+  text: "#eafef4",
+  textSoft: "#9ac9bb",
+
+  border: "#19d991",
+  borderBright: "#7dffc9",
+  borderW: 3,
+
+  shadowHard: "#0f7a55",
+  danger: "#ff5d73",
+
+  radius: 6,
 };
 
-const MONO = "'JetBrains Mono','Fira Code','SF Mono',Consolas,monospace";
-const SANS =
-  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
+// Font: disematkan base64 supaya SVG tetap benar walau dirender lewat <img>
+const FONT_GROTESK = readFileSync("_fonts/grotesk.woff2").toString("base64");
+const FONT_MONO400 = readFileSync("_fonts/mono400.woff2").toString("base64");
+const FONT_MONO700 = readFileSync("_fonts/mono700.woff2").toString("base64");
+
+const FF_HEAD = `"Space Grotesk","Segoe UI",system-ui,sans-serif`;
+const FF_MONO = `"Space Mono","Courier New",Consolas,monospace`;
+
 const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/* ───────────────────── GEOMETRI GRID ───────────────────── */
+const FONT_DEFS = `<style>
+    @font-face{font-family:"Space Grotesk";src:url(data:font/woff2;base64,${FONT_GROTESK}) format("woff2");font-weight:400 700;font-display:block;}
+    @font-face{font-family:"Space Mono";src:url(data:font/woff2;base64,${FONT_MONO400}) format("woff2");font-weight:400;font-display:block;}
+    @font-face{font-family:"Space Mono";src:url(data:font/woff2;base64,${FONT_MONO700}) format("woff2");font-weight:700;font-display:block;}
+  </style>`;
+
+/* ─────────────────── GEOMETRI GRID KONTRIBUSI ─────────────────── */
 
 const PITCH = 15;
 const CELL = 11;
 const DEPTH = 4;
-const COLS = contrib.cols; // 53
+const COLS = contrib.cols;
 const ROWS = 7;
 const GRID_W = COLS * PITCH - (PITCH - CELL);
 const GRID_X = Math.round((900 - GRID_W) / 2);
-const GRID_Y = 280;
+// Pilar tertinggi = 10 + 4*13 = 62px di atas dasar sel, plus 4px sisi atas.
+// GRID_Y dipilih supaya pilar itu tidak menabrak label terrain di atasnya.
+const GRID_Y = 520;
 
 const cellX = (c) => GRID_X + c * PITCH;
 const cellY = (r) => GRID_Y + r * PITCH;
 
-/* ─────────────── KOTAK 3D (front + top + side) ─────────────── */
+/* ───────────── KOTAK 3D neobrutalism: tepi tegas ───────────── */
 
-function box(x, y, w, h, k, cTop, cFront, cSide) {
-  const front = `<path d="M${x},${y} L${x + w},${y} L${x + w},${y + h} L${x},${y + h} Z" fill="${cFront}"/>`;
-  const top = `<path d="M${x},${y} L${x + k},${y - k} L${x + w + k},${y - k} L${x + w},${y} Z" fill="${cTop}"/>`;
-  const side = `<path d="M${x + w},${y} L${x + w + k},${y - k} L${x + w + k},${y - k + h} L${x + w},${y + h} Z" fill="${cSide}"/>`;
+function box(x, y, w, h, k, cTop, cFront, cSide, stroke) {
+  const s = stroke
+    ? ` stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"`
+    : "";
+  const front = `<path d="M${x},${y} L${x + w},${y} L${x + w},${y + h} L${x},${y + h} Z" fill="${cFront}"${s}/>`;
+  const top = `<path d="M${x},${y} L${x + k},${y - k} L${x + w + k},${y - k} L${x + w},${y} Z" fill="${cTop}"${s}/>`;
+  const side = `<path d="M${x + w},${y} L${x + w + k},${y - k} L${x + w + k},${y - k + h} L${x + w},${y + h} Z" fill="${cSide}"${s}/>`;
   return { front, top, side };
 }
 
-/* ─────────────────── TERRAIN KONTRIBUSI ─────────────────── */
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255;
+  let g = (n >> 8) & 255;
+  let b = n & 255;
+  const f = (v) =>
+    Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
+  return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, "0")}`;
+}
 
-function terrain(t) {
+function mix(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const r = Math.round(((pa >> 16) & 255) * (1 - t) + ((pb >> 16) & 255) * t);
+  const g = Math.round(((pa >> 8) & 255) * (1 - t) + ((pb >> 8) & 255) * t);
+  const bl = Math.round((pa & 255) * (1 - t) + (pb & 255) * t);
+  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0")}`;
+}
+
+/* Skala level: hijau muda → hijau terang (sesuai aksen situs) */
+const LEVELS = ["#0e1a15", "#1a4d3a", "#19d991", "#4dffb2", "#a6ffdb"];
+
+function terrain() {
   let flat = "";
   let pillars = "";
 
-  // Sel kosong / datar: gambar semua dulu, lalu pilar di atasnya
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      const lvl = contrib.matrix[r][c];
       const x = cellX(c);
       const y = cellY(r);
+      const lvl = contrib.matrix[r][c];
       if (lvl === 0) {
-        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="${t.gridEmpty}"/>`;
+        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="#0b1411" stroke="#123026" stroke-width="0.8"/>`;
       } else {
-        // alas gelap supaya pilar punya kaki
-        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="${t.gridEmptyEdge}"/>`;
+        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="#123026"/>`;
       }
     }
   }
 
-  // Pilar 3D, urut dari baris atas ke bawah (belakang → depan)
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const lvl = contrib.matrix[r][c];
       if (lvl === 0) continue;
-
       const x = cellX(c);
       const baseBottom = cellY(r) + CELL;
-      const h = 10 + lvl * 13; // tinggi ekstrusi
+      const h = 10 + lvl * 13;
       const yTop = baseBottom - h;
-
-      const base = t.levels[lvl];
+      const base = LEVELS[lvl];
       const { front, top, side } = box(
         x,
         yTop,
         CELL,
         h,
         DEPTH,
+        shade(base, 0.3),
         base,
-        shade(base, -0.18),
-        shade(base, -0.42)
+        shade(base, -0.45),
+        "#0b1411"
       );
       pillars += `<g>${front}${side}${top}</g>`;
     }
@@ -124,33 +144,15 @@ function terrain(t) {
   return flat + pillars;
 }
 
-// Geser kecerahan hex
-function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) & 255;
-  let g = (n >> 8) & 255;
-  let b = n & 255;
-  const f = (v) => Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
-  r = f(r);
-  g = f(g);
-  b = f(b);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-}
-
-/* ─────────────────── JALUR ULAR (serpentine) ─────────────────── */
+/* ───────────────────── JALUR ULAR ───────────────────── */
 
 function buildPath() {
   const pts = [];
-  // Serpentine: baris 6 → 0, zig-zag
   for (let r = ROWS - 1; r >= 0; r--) {
-    const leftToRight = (ROWS - 1 - r) % 2 === 0;
-    if (leftToRight) {
-      for (let c = 0; c < COLS; c++) pts.push([c, r]);
-    } else {
-      for (let c = COLS - 1; c >= 0; c--) pts.push([c, r]);
-    }
+    const ltr = (ROWS - 1 - r) % 2 === 0;
+    if (ltr) for (let c = 0; c < COLS; c++) pts.push([c, r]);
+    else for (let c = COLS - 1; c >= 0; c--) pts.push([c, r]);
   }
-  // Kembali menyusuri kolom kanan lalu baris bawah supaya loop menutup
   for (let r = 1; r < ROWS; r++) pts.push([COLS - 1, r]);
   for (let c = COLS - 2; c >= 1; c--) pts.push([c, ROWS - 1]);
   return pts;
@@ -158,187 +160,194 @@ function buildPath() {
 
 const PATH = buildPath();
 const N = PATH.length;
+const PATH_XY = PATH.map(([c, r]) => [cellX(c) + CELL / 2, cellY(r) + CELL / 2]);
 
-// Titik tengah kubus untuk tiap waypoint
-const PATH_XY = PATH.map(([c, r]) => [
-  cellX(c) + CELL / 2,
-  cellY(r) + CELL / 2,
-]);
+const DUR = 40;
+// Badan ular = deretan kubus 3D yang saling menimpa, bukan satu garis tebal.
+// Tiap segmen tertinggal 1 waypoint dari segmen di depannya; karena jarak
+// antar waypoint = PITCH (15px) dan lebar segmen 15px, kubusnya bersambung.
+const SEGMENTS = 26;
 
-/* ───────────────────────── ULAR ───────────────────────── */
+function snake() {
+  // Nilai animasi tiap segmen: geser sirkular sepanjang loop.
+  // Loop ditutup dengan mengulang titik pertama di akhir supaya mulus.
+  const track = (lag) => {
+    const out = [];
+    for (let j = 0; j <= N; j++) {
+      const [x, y] = PATH_XY[(j + lag) % N];
+      out.push(`${x},${y}`);
+    }
+    return out.join(";");
+  };
 
-const DUR = 40; // detik per putaran
-const BODY_PCT = 5.2; // panjang badan sebagai % keliling loop
+  let out = "";
 
-function snake(t) {
-  // Satu path tertutup yang menyusuri seluruh waypoint.
-  // pathLength dinormalkan ke 1000 supaya dasharray konsisten.
-  const d =
-    PATH_XY.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ") + " Z";
+  // Gambar dari ekor ke kepala supaya kepala selalu di atas
+  for (let i = SEGMENTS - 1; i >= 0; i--) {
+    const isHead = i === 0;
+    const tt = i / (SEGMENTS - 1); // 0 = kepala, 1 = ekor
 
-  // Ekstrusi 3D: salinan path yang digeser, warna lebih gelap
-  const extrude = `<path d="${d}" pathLength="1000" fill="none"
-      stroke="${shade(t.snakeTail, -0.55)}" stroke-width="9"
-      stroke-linecap="round" stroke-linejoin="round"
-      stroke-dasharray="${BODY_PCT} 1000" opacity="0.85">
-      <animate attributeName="stroke-dashoffset" from="0" to="-1000"
-        dur="${DUR}s" repeatCount="indefinite"/>
-    </path>
-    <path d="${d}" pathLength="1000" fill="none"
-      stroke="${shade(t.snakeTail, -0.55)}" stroke-width="9"
-      stroke-linecap="round" stroke-linejoin="round"
-      stroke-dasharray="${BODY_PCT} 1000" opacity="0.85"
-      transform="translate(4,4)">
-      <animate attributeName="stroke-dashoffset" from="0" to="-1000"
-        dur="${DUR}s" repeatCount="indefinite"/>
-    </path>`;
+    // Warna: kepala hijau terang → badan hijau → ekor cyan pudar
+    const col = tt < 0.55
+      ? mix(T.borderBright, T.green, tt / 0.55)
+      : mix(T.green, T.cyan, (tt - 0.55) / 0.45);
 
-  // Badan utama dengan gradien
-  const body = `<path d="${d}" pathLength="1000" fill="none"
-      stroke="url(#snakeGrad)" stroke-width="9"
-      stroke-linecap="round" stroke-linejoin="round"
-      stroke-dasharray="${BODY_PCT} 1000">
-      <animate attributeName="stroke-dashoffset" from="0" to="-1000"
-        dur="${DUR}s" repeatCount="indefinite"/>
-    </path>`;
+    const s = isHead ? 15 : 15 - tt * 7;      // 15px → 8px
+    const k = isHead ? 7 : 4 + (1 - tt) * 2;  // kedalaman sisi
+    const half = s / 2;
 
-  // Kepala: kubus yang mengikuti waypoint, sinkron dengan dashoffset
-  const vals = [];
-  for (let j = 0; j <= N; j++) {
-    const [x, y] = PATH_XY[j % N];
-    vals.push(`${x},${y}`);
+    const { front, top, side } = box(
+      -half,
+      -half,
+      s,
+      s,
+      k,
+      shade(col, 0.3),
+      col,
+      shade(col, -0.45),
+      "#050a08"
+    );
+
+    // Hard shadow: salinan yang digeser 3px, warna --shadow-hard-color
+    const { front: sf, top: st, side: ss } = box(
+      -half + 3,
+      -half + 3,
+      s,
+      s,
+      k,
+      T.shadowHard,
+      T.shadowHard,
+      T.shadowHard
+    );
+
+    const eyes = isHead
+      ? `<circle cx="${-half + s * 0.3}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>
+         <circle cx="${-half + s * 0.7}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>`
+      : "";
+
+    out += `<g opacity="${(1 - tt * 0.25).toFixed(2)}">
+      <animateTransform attributeName="transform" type="translate"
+        values="${track(i)}" dur="${DUR}s" repeatCount="indefinite"/>
+      ${sf}${ss}${st}${front}${side}${top}${eyes}
+    </g>`;
   }
 
-  const hs = CELL + 4;
-  const half = hs / 2;
-  const k = DEPTH + 3;
-  const headCol = t.snakeHead;
-  const { front, top, side } = box(
-    -half,
-    -half,
-    hs,
-    hs,
-    k,
-    shade(headCol, 0.35),
-    headCol,
-    shade(headCol, -0.4)
-  );
-
-  const eyes = `
-    <circle cx="${-half + hs * 0.3}" cy="${-half + hs * 0.28}" r="2" fill="#ffffff"/>
-    <circle cx="${-half + hs * 0.7}" cy="${-half + hs * 0.28}" r="2" fill="#ffffff"/>
-    <circle cx="${-half + hs * 0.3}" cy="${-half + hs * 0.28}" r="0.9" fill="#0b1020"/>
-    <circle cx="${-half + hs * 0.7}" cy="${-half + hs * 0.28}" r="0.9" fill="#0b1020"/>`;
-
-  const head = `<g>
-    <animateTransform attributeName="transform" type="translate"
-      values="${vals.join(";")}" dur="${DUR}s" repeatCount="indefinite"/>
-    ${front}${side}${top}${eyes}
-  </g>`;
-
-  return extrude + body + head;
+  return out;
 }
 
-function mix(a, b, t2) {
-  const pa = parseInt(a.slice(1), 16);
-  const pb = parseInt(b.slice(1), 16);
-  const r = Math.round(((pa >> 16) & 255) * (1 - t2) + ((pb >> 16) & 255) * t2);
-  const g = Math.round(((pa >> 8) & 255) * (1 - t2) + ((pb >> 8) & 255) * t2);
-  const bl = Math.round((pa & 255) * (1 - t2) + (pb & 255) * t2);
-  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0")}`;
+/* ───────────────────── KOMPONEN NEOBRUTAL ───────────────────── */
+
+// Kartu: border 3px + hard shadow 4px 4px 0
+function card(x, y, w, h, fill) {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${T.radius}"
+      fill="${fill || T.panel}" stroke="${T.border}" stroke-width="${T.borderW}"/>
+    <rect x="${x + 4}" y="${y + 4}" width="${w}" height="${h}" rx="${T.radius}"
+      fill="none" stroke="${T.shadowHard}" stroke-width="${T.borderW}"/>`;
 }
 
 /* ───────────────────────── HERO ───────────────────────── */
 
-function hero(t) {
+// .section-label milik situs TIDAK set font-family → inherit dari body
+// yang memakai var(--ff-heading) = Space Grotesk. text-shadow: 2px 2px 0 var(--green-dark)
+// Di SVG, text-shadow = salinan teks yang digeser 2px di belakang.
+function sectionLabel(x, y, text, fill) {
+  return `<text x="${x + 2}" y="${y + 2}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
+      fill="${T.greenDark}" letter-spacing="3">${esc(text)}</text>
+    <text x="${x}" y="${y}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
+      fill="${fill || T.green}" letter-spacing="3">${esc(text)}</text>`;
+}
+
+function hero() {
+  // .stat-card: padding 30px, border 3px, radius 6px, shadow 4px 4px 0
+  // Isi kartu meniru .stat-header / .stat-number / caption situs asli.
   const stats = [
-    { n: contrib.total, l: "CONTRIBUTIONS" },
-    { n: contrib.active, l: "ACTIVE DAYS" },
-    { n: contrib.best, l: "DAY STREAK" },
+    { n: contrib.total, l: "CONTRIBUTIONS", c: "sepanjang setahun" },
+    { n: contrib.active, l: "ACTIVE DAYS", c: "hari ada commit" },
+    { n: contrib.best, l: "DAY STREAK", c: "berturut-turut" },
   ];
 
-  const statSvg = stats
+  const cardW = 249;
+  const cardH = 152;
+  const gap = 22;
+  const startX = 54;
+  const cardY = 200;
+
+  const statCards = stats
     .map((s, i) => {
-      const x = 54 + i * 128;
-      return `<text x="${x}" y="152" font-family="${SANS}" font-size="30" font-weight="800"
-        fill="${i === 0 ? t.accent : t.text}" letter-spacing="-0.5">${s.n}</text>
-    <text x="${x}" y="170" font-family="${MONO}" font-size="8.5" font-weight="600"
-        fill="${t.dim}" letter-spacing="1.6">${s.l}</text>`;
+      const x = startX + i * (cardW + gap);
+      const idx = String(i + 1).padStart(2, "0");
+      return `<g>
+      ${card(x, cardY, cardW, cardH)}
+      <text x="${x + 24}" y="${cardY + 36}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
+            fill="${T.textSoft}" letter-spacing="3">${s.l}</text>
+      <text x="${x + cardW - 24}" y="${cardY + 36}" text-anchor="end" font-family='${FF_MONO}' font-size="11"
+            font-weight="700" fill="${T.greenDark}" letter-spacing="1">${idx}</text>
+      <text x="${x + 24}" y="${cardY + 94}" font-family='${FF_HEAD}' font-size="48" font-weight="700"
+            fill="${T.text}" letter-spacing="-1">${s.n}</text>
+      <text x="${x + 24}" y="${cardY + 124}" font-family='${FF_HEAD}' font-size="14"
+            fill="${T.textSoft}">${s.c}</text>
+    </g>`;
     })
     .join("\n    ");
 
-  const glow = t.glow
-    ? `<filter id="snakeGlow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="3.2" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="pillarGlow" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="2.6" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>`
-    : "";
+  // Legenda (calendar-legend-item memakai mono di situs)
+  // Rata kanan: swatch 5 x 11px pitch 15 = 71px, berakhir di 812, "MORE" di 846.
+  const legend = LEVELS.map((c, i) => {
+    const x = 741 + i * 15;
+    return `<rect x="${x}" y="662" width="11" height="11" rx="2" fill="${c}" stroke="#0b1411" stroke-width="1"/>`;
+  }).join("");
 
-  // Legenda
-  const legendX = 846;
-  const legend = t.levels
-    .map((c, i) => {
-      const x = legendX - (4 - i) * 13;
-      return `<rect x="${x}" y="442" width="9" height="9" rx="1.5" fill="${c}"/>`;
-    })
-    .join("");
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" role="img" aria-label="Krisna D. Cristian — contribution terrain">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700" viewBox="0 0 900 700" role="img" aria-label="Krisna D. Cristian — contribution terrain">
 <defs>
-  <linearGradient id="bgGrad" x1="0" y1="0" x2="0.6" y2="1">
-    <stop offset="0%" stop-color="${t.bg}"/>
-    <stop offset="100%" stop-color="${t.bg2}"/>
-  </linearGradient>
-  <linearGradient id="accentLine" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0%" stop-color="${t.accent}" stop-opacity="0.9"/>
-    <stop offset="60%" stop-color="${t.accent}" stop-opacity="0.05"/>
-    <stop offset="100%" stop-color="${t.accent}" stop-opacity="0"/>
-  </linearGradient>
+  ${FONT_DEFS}
   <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0%" stop-color="${t.snakeHead}"/>
-    <stop offset="55%" stop-color="${mix(t.snakeHead, t.snakeTail, 0.5)}"/>
-    <stop offset="100%" stop-color="${t.snakeTail}"/>
+    <stop offset="0%" stop-color="${T.borderBright}"/>
+    <stop offset="50%" stop-color="${T.green}"/>
+    <stop offset="100%" stop-color="${T.cyan}"/>
   </linearGradient>
-  ${glow}
+  <radialGradient id="glowGreen" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0%" stop-color="${T.green}" stop-opacity="0.16"/>
+    <stop offset="100%" stop-color="${T.green}" stop-opacity="0"/>
+  </radialGradient>
+  <!-- .bg-photo: radial-gradient(rgba(77,255,178,0.13) 1.5px, transparent 1.5px) / 28px 28px -->
+  <pattern id="dotField" width="28" height="28" patternUnits="userSpaceOnUse">
+    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
+  </pattern>
 </defs>
 
-<rect width="900" height="470" fill="url(#bgGrad)"/>
+<rect width="900" height="700" fill="${T.bg}"/>
+<rect width="900" height="700" fill="url(#dotField)"/>
+<ellipse cx="450" cy="540" rx="440" ry="170" fill="url(#glowGreen)"/>
 
-<!-- garis aksen tipis di atas -->
-<rect x="0" y="0" width="900" height="2" fill="url(#accentLine)"/>
+<!-- label section -->
+${sectionLabel(54, 60, "// MISSION CONTROL")}
 
 <!-- nama -->
-<text x="54" y="72" font-family="${SANS}" font-size="40" font-weight="800"
-      fill="${t.text}" letter-spacing="-1.2">Krisna D. Cristian</text>
+<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
+      fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>
 
-<text x="54" y="98" font-family="${MONO}" font-size="11.5" font-weight="500"
-      fill="${t.muted}" letter-spacing="0.3">Informatics Engineering · Institut Teknologi Sumatera · Lampung</text>
+<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
+      fill="${T.textSoft}">Informatics Engineering · Institut Teknologi Sumatera · Lampung</text>
 
-<!-- statistik -->
-${statSvg}
+<!-- kartu statistik -->
+${statCards}
 
-<!-- label terrain -->
-<line x1="54" y1="196" x2="846" y2="196" stroke="${t.gridEmptyEdge}" stroke-width="1"/>
-<text x="54" y="216" font-family="${MONO}" font-size="9" font-weight="700"
-      fill="${t.dim}" letter-spacing="2.4">CONTRIBUTION TERRAIN</text>
-<text x="846" y="216" text-anchor="end" font-family="${MONO}" font-size="9"
-      fill="${t.dim}" letter-spacing="0.6">365 DAYS · ${contrib.total} TOTAL</text>
+<!-- header terrain -->
+<line x1="54" y1="396" x2="846" y2="396" stroke="${T.border}" stroke-width="2"/>
+${sectionLabel(54, 428, "// CONTRIBUTION TERRAIN")}
+<text x="846" y="428" text-anchor="end" font-family='${FF_MONO}' font-size="11"
+      fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>
 
-<!-- terrain -->
-<g>${terrain(t)}</g>
-
-<!-- ular 3D -->
-<g filter="url(#snakeGlow)">${snake(t)}</g>
+<!-- terrain + ular -->
+<g>${terrain()}</g>
+${snake()}
 
 <!-- legenda -->
-<text x="54" y="450" font-family="${MONO}" font-size="9" fill="${t.dim}" letter-spacing="1.2">LESS</text>
+<text x="54" y="671" font-family='${FF_MONO}' font-size="10" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.4">LESS</text>
 ${legend}
-<text x="864" y="450" font-family="${MONO}" font-size="9" fill="${t.dim}" letter-spacing="1.2">MORE</text>
-
+<text x="846" y="671" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>
 
 </svg>
 `;
@@ -353,45 +362,45 @@ const TECH = [
   "Three.js", "Playwright", "LaTeX", "Git", "GitHub Actions",
 ];
 
-function stack(t) {
-  const ROW_Y = 56;
-  const H = 34;
-  const GAP = 9;
-  const PAD = 16;
-
-  // ukur lebar kasar: mono 10.5px ≈ 6.3px per char
+function stack() {
+  const H = 40;
+  const GAP = 12;
+  const PAD = 20;
+  const startY = 108;
   let x = 54;
-  let y = ROW_Y;
+  let y = startY;
   let out = "";
-  const MAX_X = 846;
 
   for (const name of TECH) {
-    const w = Math.round(name.length * 6.6 + PAD * 2);
-    if (x + w > MAX_X) {
+    const w = Math.round(name.length * 7.4 + PAD * 2);
+    if (x + w > 846) {
       x = 54;
       y += H + GAP;
     }
+    // chip: border 2px + hard shadow kecil (2px 2px 0)
     out += `<g>
-      <rect x="${x}" y="${y}" width="${w}" height="${H}" rx="7" fill="${t.pillBg}" stroke="${t.pillEdge}" stroke-width="1"/>
-      <rect x="${x}" y="${y}" width="2.5" height="${H}" rx="1.2" fill="${t.accent}" opacity="0.55"/>
-      <text x="${x + PAD}" y="${y + H / 2 + 3.8}" font-family="${MONO}" font-size="10.5" font-weight="600"
-            fill="${t.muted}">${esc(name)}</text>
+      <rect x="${x + 2}" y="${y + 2}" width="${w}" height="${H}" rx="4" fill="${T.shadowHard}"/>
+      <rect x="${x}" y="${y}" width="${w}" height="${H}" rx="4" fill="${T.panel}"
+            stroke="${T.border}" stroke-width="2"/>
+      <text x="${x + PAD}" y="${y + H / 2 + 4.6}" font-family='${FF_MONO}' font-size="12" font-weight="700"
+            fill="${T.textSoft}" letter-spacing="0.4">${esc(name)}</text>
     </g>`;
     x += w + GAP;
   }
 
-  const height = y + H + 34;
+  const height = y + H + 44;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${height}" viewBox="0 0 900 ${height}" role="img" aria-label="Tech stack">
-<defs>
-  <linearGradient id="bgGrad2" x1="0" y1="0" x2="0.6" y2="1">
-    <stop offset="0%" stop-color="${t.bg}"/>
-    <stop offset="100%" stop-color="${t.bg2}"/>
-  </linearGradient>
+<defs>${FONT_DEFS}
+  <pattern id="dotField2" width="28" height="28" patternUnits="userSpaceOnUse">
+    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
+  </pattern>
 </defs>
-<rect width="900" height="${height}" fill="url(#bgGrad2)"/>
-<text x="54" y="30" font-family="${MONO}" font-size="9" font-weight="700"
-      fill="${t.dim}" letter-spacing="2.4">TOOLS I ACTUALLY USE</text>
+<rect width="900" height="${height}" fill="${T.bg}"/>
+<rect width="900" height="${height}" fill="url(#dotField2)"/>
+${sectionLabel(54, 52, "// ACTIVE SIGNALS")}
+<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
+      fill="${T.text}" letter-spacing="-1">Tools I actually use</text>
 ${out}
 </svg>
 `;
@@ -399,37 +408,38 @@ ${out}
 
 /* ───────────────────────── LINKS ───────────────────────── */
 
-function links(t) {
+function links() {
   const items = [
     { label: "github.com/Belliond", href: "https://github.com/Belliond" },
     { label: "virst132109@gmail.com", href: "mailto:virst132109@gmail.com" },
+    { label: "task-vault", href: "https://belliond.github.io/task-vault/" },
   ];
 
   let x = 54;
   let out = "";
   for (const it of items) {
-    const w = Math.round(it.label.length * 6.4 + 34);
+    const w = Math.round(it.label.length * 7.2 + 44);
     out += `<a href="${it.href}" target="_blank">
-    <rect x="${x}" y="30" width="${w}" height="28" rx="14" fill="${t.pillBg}" stroke="${t.pillEdge}" stroke-width="1"/>
-    <circle cx="${x + 15}" cy="44" r="3" fill="${t.accent}"/>
-    <text x="${x + 26}" y="47.8" font-family="${MONO}" font-size="10" font-weight="600"
-          fill="${t.muted}">${esc(it.label)}</text>
+    <rect x="${x + 3}" y="33" width="${w}" height="38" rx="4" fill="${T.shadowHard}"/>
+    <rect x="${x}" y="30" width="${w}" height="38" rx="4" fill="${T.panel}"
+          stroke="${T.borderBright}" stroke-width="2"/>
+    <text x="${x + 22}" y="54.4" font-family='${FF_MONO}' font-size="12" font-weight="700"
+          fill="${T.textSoft}" letter-spacing="0.3">${esc(it.label)}</text>
   </a>`;
-    x += w + 10;
+    x += w + 14;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="88" viewBox="0 0 900 88" role="img" aria-label="Links">
-<defs>
-  <linearGradient id="bgGrad3" x1="0" y1="0" x2="0.6" y2="1">
-    <stop offset="0%" stop-color="${t.bg}"/>
-    <stop offset="100%" stop-color="${t.bg2}"/>
-  </linearGradient>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="104" viewBox="0 0 900 104" role="img" aria-label="Links">
+<defs>${FONT_DEFS}
+  <pattern id="dotField3" width="28" height="28" patternUnits="userSpaceOnUse">
+    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
+  </pattern>
 </defs>
-<rect width="900" height="88" fill="url(#bgGrad3)"/>
+<rect width="900" height="104" fill="${T.bg}"/>
+<rect width="900" height="104" fill="url(#dotField3)"/>
 ${out}
-<text x="846" y="47.8" text-anchor="end" font-family="${MONO}" font-size="9"
-      fill="${t.dim}" letter-spacing="1.4">BUILT, BROKEN, REBUILT</text>
-<rect x="0" y="86" width="900" height="2" fill="url(#accentLine)" opacity="0.5"/>
+<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>
 </svg>
 `;
 }
@@ -437,14 +447,10 @@ ${out}
 /* ───────────────────────── TULIS ───────────────────────── */
 
 mkdirSync("assets", { recursive: true });
+writeFileSync("assets/hero.svg", hero());
+writeFileSync("assets/stack.svg", stack());
+writeFileSync("assets/links.svg", links());
 
-for (const [name, t] of Object.entries(THEMES)) {
-  writeFileSync(`assets/hero-${name}.svg`, hero(t));
-  writeFileSync(`assets/stack-${name}.svg`, stack(t));
-  writeFileSync(`assets/links-${name}.svg`, links(t));
-  console.log(`✓ ${name}`);
-}
-
-console.log("\nwaypoint ular :", N);
-console.log("panjang badan :", BODY_PCT + "% loop");
-console.log("total kontrib :", contrib.total);
+console.log("✓ hero, stack, links");
+console.log("  font disematkan:", Math.round((FONT_GROTESK.length + FONT_MONO400.length + FONT_MONO700.length) / 1024), "KB base64");
+console.log("  kontribusi     :", contrib.total);

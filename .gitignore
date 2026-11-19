@@ -1,7 +1,9 @@
 # Folder kerja lokal, bukan bagian dari README
 preview/
 _ref/
-_tokencheck.ps1
-render-preview.mjs
-test-readme.mjs
+crop.mjs
+render.mjs
 validate.mjs
+anim.mjs
+ref.mjs
+_tokencheck.ps1
