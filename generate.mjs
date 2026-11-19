@@ -1,6 +1,11 @@
 // generate.mjs — README profil, tema Ghost Task Matrix (neobrutalism)
 // Palet, font, border, dan hard-shadow diambil persis dari
 // https://belliond.github.io/task-vault/style.css (:root)
+//
+// Output: satu SVG utuh (assets/profile.svg) — bukan tiga file terpisah.
+// Alasannya: SVG ini full-bleed gelap, dan GitHub selalu memberi margin
+// antar <img> di README. Kalau dipecah, celah antar gambar jadi pita putih
+// yang merusak tampilan satu halaman. Satu kanvas = mulus seperti situsnya.
 
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
 
@@ -11,13 +16,10 @@ const contrib = JSON.parse(readFileSync("contrib.json", "utf8"));
 
 const T = {
   bg: "#050a08",
-  bgSecondary: "rgba(11,20,16,0.88)",
   panel: "rgba(14,26,21,0.84)",
-  panelRaised: "rgba(18,33,26,0.88)",
 
   green: "#4dffb2",
   greenDark: "#19d991",
-  greenSoft: "rgba(77,255,178,0.12)",
   cyan: "#4fe6ff",
 
   text: "#eafef4",
@@ -28,12 +30,11 @@ const T = {
   borderW: 3,
 
   shadowHard: "#0f7a55",
-  danger: "#ff5d73",
-
   radius: 6,
 };
 
 // Font: disematkan base64 supaya SVG tetap benar walau dirender lewat <img>
+// (cara GitHub menampilkan SVG di README — tanpa akses ke CSS halaman).
 const FONT_GROTESK = readFileSync("_fonts/grotesk.woff2").toString("base64");
 const FONT_MONO400 = readFileSync("_fonts/mono400.woff2").toString("base64");
 const FONT_MONO700 = readFileSync("_fonts/mono700.woff2").toString("base64");
@@ -60,7 +61,6 @@ const ROWS = 7;
 const GRID_W = COLS * PITCH - (PITCH - CELL);
 const GRID_X = Math.round((900 - GRID_W) / 2);
 // Pilar tertinggi = 10 + 4*13 = 62px di atas dasar sel, plus 4px sisi atas.
-// GRID_Y dipilih supaya pilar itu tidak menabrak label terrain di atasnya.
 const GRID_Y = 520;
 
 const cellX = (c) => GRID_X + c * PITCH;
@@ -80,9 +80,9 @@ function box(x, y, w, h, k, cTop, cFront, cSide, stroke) {
 
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) & 255;
-  let g = (n >> 8) & 255;
-  let b = n & 255;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
   const f = (v) =>
     Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
   return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, "0")}`;
@@ -97,7 +97,7 @@ function mix(a, b, t) {
   return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0")}`;
 }
 
-/* Skala level: hijau muda → hijau terang (sesuai aksen situs) */
+/* Skala level: hijau redup → hijau terang (sesuai aksen situs) */
 const LEVELS = ["#0e1a15", "#1a4d3a", "#19d991", "#4dffb2", "#a6ffdb"];
 
 function terrain() {
@@ -169,8 +169,6 @@ const DUR = 40;
 const SEGMENTS = 26;
 
 function snake() {
-  // Nilai animasi tiap segmen: geser sirkular sepanjang loop.
-  // Loop ditutup dengan mengulang titik pertama di akhir supaya mulus.
   const track = (lag) => {
     const out = [];
     for (let j = 0; j <= N; j++) {
@@ -187,37 +185,24 @@ function snake() {
     const isHead = i === 0;
     const tt = i / (SEGMENTS - 1); // 0 = kepala, 1 = ekor
 
-    // Warna: kepala hijau terang → badan hijau → ekor cyan pudar
-    const col = tt < 0.55
-      ? mix(T.borderBright, T.green, tt / 0.55)
-      : mix(T.green, T.cyan, (tt - 0.55) / 0.45);
+    const col =
+      tt < 0.55
+        ? mix(T.borderBright, T.green, tt / 0.55)
+        : mix(T.green, T.cyan, (tt - 0.55) / 0.45);
 
-    const s = isHead ? 15 : 15 - tt * 7;      // 15px → 8px
-    const k = isHead ? 7 : 4 + (1 - tt) * 2;  // kedalaman sisi
+    const s = isHead ? 15 : 15 - tt * 7;
+    const k = isHead ? 7 : 4 + (1 - tt) * 2;
     const half = s / 2;
 
     const { front, top, side } = box(
-      -half,
-      -half,
-      s,
-      s,
-      k,
-      shade(col, 0.3),
-      col,
-      shade(col, -0.45),
-      "#050a08"
+      -half, -half, s, s, k,
+      shade(col, 0.3), col, shade(col, -0.45), "#050a08"
     );
 
     // Hard shadow: salinan yang digeser 3px, warna --shadow-hard-color
-    const { front: sf, top: st, side: ss } = box(
-      -half + 3,
-      -half + 3,
-      s,
-      s,
-      k,
-      T.shadowHard,
-      T.shadowHard,
-      T.shadowHard
+    const sh = box(
+      -half + 3, -half + 3, s, s, k,
+      T.shadowHard, T.shadowHard, T.shadowHard
     );
 
     const eyes = isHead
@@ -228,7 +213,7 @@ function snake() {
     out += `<g opacity="${(1 - tt * 0.25).toFixed(2)}">
       <animateTransform attributeName="transform" type="translate"
         values="${track(i)}" dur="${DUR}s" repeatCount="indefinite"/>
-      ${sf}${ss}${st}${front}${side}${top}${eyes}
+      ${sh.front}${sh.side}${sh.top}${front}${side}${top}${eyes}
     </g>`;
   }
 
@@ -245,11 +230,8 @@ function card(x, y, w, h, fill) {
       fill="none" stroke="${T.shadowHard}" stroke-width="${T.borderW}"/>`;
 }
 
-/* ───────────────────────── HERO ───────────────────────── */
-
-// .section-label milik situs TIDAK set font-family → inherit dari body
-// yang memakai var(--ff-heading) = Space Grotesk. text-shadow: 2px 2px 0 var(--green-dark)
-// Di SVG, text-shadow = salinan teks yang digeser 2px di belakang.
+// .section-label tidak set font-family → inherit Space Grotesk dari body.
+// text-shadow: 2px 2px 0 var(--green-dark) → salinan teks digeser 2px.
 function sectionLabel(x, y, text, fill) {
   return `<text x="${x + 2}" y="${y + 2}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
       fill="${T.greenDark}" letter-spacing="3">${esc(text)}</text>
@@ -257,9 +239,9 @@ function sectionLabel(x, y, text, fill) {
       fill="${fill || T.green}" letter-spacing="3">${esc(text)}</text>`;
 }
 
-function hero() {
-  // .stat-card: padding 30px, border 3px, radius 6px, shadow 4px 4px 0
-  // Isi kartu meniru .stat-header / .stat-number / caption situs asli.
+/* ───────────────────────── SEKSI: HERO ───────────────────────── */
+
+function heroSection() {
   const stats = [
     { n: contrib.total, l: "CONTRIBUTIONS", c: "sepanjang setahun" },
     { n: contrib.active, l: "ACTIVE DAYS", c: "hari ada commit" },
@@ -290,70 +272,41 @@ function hero() {
     })
     .join("\n    ");
 
-  // Legenda (calendar-legend-item memakai mono di situs)
   // Rata kanan: swatch 5 x 11px pitch 15 = 71px, berakhir di 812, "MORE" di 846.
   const legend = LEVELS.map((c, i) => {
     const x = 741 + i * 15;
     return `<rect x="${x}" y="662" width="11" height="11" rx="2" fill="${c}" stroke="#0b1411" stroke-width="1"/>`;
   }).join("");
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700" viewBox="0 0 900 700" role="img" aria-label="Krisna D. Cristian — contribution terrain">
-<defs>
-  ${FONT_DEFS}
-  <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0%" stop-color="${T.borderBright}"/>
-    <stop offset="50%" stop-color="${T.green}"/>
-    <stop offset="100%" stop-color="${T.cyan}"/>
-  </linearGradient>
-  <radialGradient id="glowGreen" cx="0.5" cy="0.5" r="0.5">
-    <stop offset="0%" stop-color="${T.green}" stop-opacity="0.16"/>
-    <stop offset="100%" stop-color="${T.green}" stop-opacity="0"/>
-  </radialGradient>
-  <!-- .bg-photo: radial-gradient(rgba(77,255,178,0.13) 1.5px, transparent 1.5px) / 28px 28px -->
-  <pattern id="dotField" width="28" height="28" patternUnits="userSpaceOnUse">
-    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
-  </pattern>
-</defs>
-
-<rect width="900" height="700" fill="${T.bg}"/>
-<rect width="900" height="700" fill="url(#dotField)"/>
-<ellipse cx="450" cy="540" rx="440" ry="170" fill="url(#glowGreen)"/>
-
-<!-- label section -->
+  const body = `
 ${sectionLabel(54, 60, "// MISSION CONTROL")}
 
-<!-- nama -->
 <text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
       fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>
 
 <text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
       fill="${T.textSoft}">Informatics Engineering · Institut Teknologi Sumatera · Lampung</text>
 
-<!-- kartu statistik -->
 ${statCards}
 
-<!-- header terrain -->
 <line x1="54" y1="396" x2="846" y2="396" stroke="${T.border}" stroke-width="2"/>
 ${sectionLabel(54, 428, "// CONTRIBUTION TERRAIN")}
 <text x="846" y="428" text-anchor="end" font-family='${FF_MONO}' font-size="11"
       fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>
 
-<!-- terrain + ular -->
 <g>${terrain()}</g>
 ${snake()}
 
-<!-- legenda -->
 <text x="54" y="671" font-family='${FF_MONO}' font-size="10" font-weight="700"
       fill="${T.textSoft}" letter-spacing="1.4">LESS</text>
 ${legend}
 <text x="846" y="671" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>
+      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>`;
 
-</svg>
-`;
+  return { h: 700, body };
 }
 
-/* ───────────────────────── STACK ───────────────────────── */
+/* ───────────────────────── SEKSI: STACK ───────────────────────── */
 
 const TECH = [
   "TypeScript", "JavaScript", "React", "Next.js", "Tailwind",
@@ -362,13 +315,12 @@ const TECH = [
   "Three.js", "Playwright", "LaTeX", "Git", "GitHub Actions",
 ];
 
-function stack() {
+function stackSection() {
   const H = 40;
   const GAP = 12;
   const PAD = 20;
-  const startY = 108;
   let x = 54;
-  let y = startY;
+  let y = 108;
   let out = "";
 
   for (const name of TECH) {
@@ -388,27 +340,18 @@ function stack() {
     x += w + GAP;
   }
 
-  const height = y + H + 44;
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${height}" viewBox="0 0 900 ${height}" role="img" aria-label="Tech stack">
-<defs>${FONT_DEFS}
-  <pattern id="dotField2" width="28" height="28" patternUnits="userSpaceOnUse">
-    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
-  </pattern>
-</defs>
-<rect width="900" height="${height}" fill="${T.bg}"/>
-<rect width="900" height="${height}" fill="url(#dotField2)"/>
+  const body = `
 ${sectionLabel(54, 52, "// ACTIVE SIGNALS")}
 <text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
       fill="${T.text}" letter-spacing="-1">Tools I actually use</text>
-${out}
-</svg>
-`;
+${out}`;
+
+  return { h: y + H + 28, body };
 }
 
-/* ───────────────────────── LINKS ───────────────────────── */
+/* ───────────────────────── SEKSI: LINKS ───────────────────────── */
 
-function links() {
+function linksSection() {
   const items = [
     { label: "github.com/Belliond", href: "https://github.com/Belliond" },
     { label: "virst132109@gmail.com", href: "mailto:virst132109@gmail.com" },
@@ -429,28 +372,64 @@ function links() {
     x += w + 14;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="104" viewBox="0 0 900 104" role="img" aria-label="Links">
-<defs>${FONT_DEFS}
-  <pattern id="dotField3" width="28" height="28" patternUnits="userSpaceOnUse">
+  const body = `
+${out}
+<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>`;
+
+  return { h: 104, body };
+}
+
+/* ───────────────────────── GABUNGKAN ───────────────────────── */
+
+const SECTIONS = [heroSection(), stackSection(), linksSection()];
+const SECTION_GAP = 40;
+const BOTTOM_PAD = 28;
+
+let y = 0;
+let inner = "";
+for (const s of SECTIONS) {
+  // pemisah tipis antar seksi, kecuali sebelum seksi pertama
+  if (y > 0) {
+    inner += `<line x1="54" y1="${y - SECTION_GAP / 2}" x2="846" y2="${y - SECTION_GAP / 2}"
+      stroke="${T.border}" stroke-width="1" opacity="0.35"/>\n`;
+  }
+  inner += `<g transform="translate(0,${y})">${s.body}</g>\n`;
+  y += s.h + SECTION_GAP;
+}
+
+const TOTAL_H = y - SECTION_GAP + BOTTOM_PAD;
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — profil">
+<defs>
+  ${FONT_DEFS}
+  <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="${T.borderBright}"/>
+    <stop offset="50%" stop-color="${T.green}"/>
+    <stop offset="100%" stop-color="${T.cyan}"/>
+  </linearGradient>
+  <radialGradient id="glowGreen" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0%" stop-color="${T.green}" stop-opacity="0.16"/>
+    <stop offset="100%" stop-color="${T.green}" stop-opacity="0"/>
+  </radialGradient>
+  <!-- .bg-photo: radial-gradient(rgba(77,255,178,0.13) 1.5px, transparent 1.5px) / 28px 28px -->
+  <pattern id="dotField" width="28" height="28" patternUnits="userSpaceOnUse">
     <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
   </pattern>
 </defs>
-<rect width="900" height="104" fill="${T.bg}"/>
-<rect width="900" height="104" fill="url(#dotField3)"/>
-${out}
-<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>
+
+<rect width="900" height="${TOTAL_H}" fill="${T.bg}"/>
+<rect width="900" height="${TOTAL_H}" fill="url(#dotField)"/>
+<ellipse cx="450" cy="540" rx="440" ry="170" fill="url(#glowGreen)"/>
+
+${inner}
 </svg>
 `;
-}
-
-/* ───────────────────────── TULIS ───────────────────────── */
 
 mkdirSync("assets", { recursive: true });
-writeFileSync("assets/hero.svg", hero());
-writeFileSync("assets/stack.svg", stack());
-writeFileSync("assets/links.svg", links());
+writeFileSync("assets/profile.svg", svg);
 
-console.log("✓ hero, stack, links");
+console.log("✓ assets/profile.svg", `900x${TOTAL_H}`);
 console.log("  font disematkan:", Math.round((FONT_GROTESK.length + FONT_MONO400.length + FONT_MONO700.length) / 1024), "KB base64");
 console.log("  kontribusi     :", contrib.total);
+console.log("  waypoint ular  :", N, "· segmen:", SEGMENTS);
