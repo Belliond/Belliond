@@ -172,7 +172,10 @@ function snake() {
   const track = (lag) => {
     const out = [];
     for (let j = 0; j <= N; j++) {
-      const [x, y] = PATH_XY[(j + lag) % N];
+      // Indeks jalur makin besar = makin MAJU. Jadi segmen harus mundur,
+      // bukan maju: pakai (j - lag), bukan (j + lag). Kalau plus, badan
+      // mendahului kepala dan ularnya jalan kebalik.
+      const [x, y] = PATH_XY[(j - lag + N) % N];
       out.push(`${x},${y}`);
     }
     return out.join(";");
