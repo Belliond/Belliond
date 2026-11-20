@@ -9,3 +9,7 @@ verify-live.mjs
 anim.mjs
 ref.mjs
 _tokencheck.ps1
+
+# Cache tooling lokal (bukan bagian README)
+graphify-out/
+ctxmenu-backup.reg
