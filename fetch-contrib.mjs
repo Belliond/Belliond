@@ -9,6 +9,7 @@ import { writeFileSync } from "node:fs";
 const USER = "Belliond";
 
 const res = await fetch(`https://github.com/users/${USER}/contributions`, {
+  signal: AbortSignal.timeout(30_000),
   headers: {
     "User-Agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -17,37 +18,67 @@ const res = await fetch(`https://github.com/users/${USER}/contributions`, {
 if (!res.ok) throw new Error("HTTP " + res.status);
 const html = await res.text();
 
-// 1) Sel: data-date lalu id lalu data-level
-const reCell =
-  /data-date="(\d{4}-\d{2}-\d{2})"\s+id="contribution-day-component-(\d+)-(\d+)"\s+data-level="(\d)"/g;
+// Parse attributes by name so harmless changes in GitHub's attribute order
+// don't corrupt the snapshot.
+const attr = (tag, name) =>
+  tag.match(new RegExp(`\\b${name}=["']([^"']*)["']`, "i"))?.[1];
+
+// 1) Calendar cells
 const cells = [];
+const reCell = /<td\b[^>]*>/gi;
 let m;
 while ((m = reCell.exec(html))) {
+  const tag = m[0];
+  if (!/\bclass=["'][^"']*\bContributionCalendar-day\b/i.test(tag)) continue;
+  const date = attr(tag, "data-date");
+  const id = attr(tag, "id")?.match(/^contribution-day-component-(\d+)-(\d+)$/);
+  const level = Number(attr(tag, "data-level"));
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !id || !Number.isInteger(level) || level < 0 || level > 4) {
+    throw new Error(`Invalid contribution calendar cell: ${tag}`);
+  }
   cells.push({
-    date: m[1],
-    dow: Number(m[2]),
-    week: Number(m[3]),
-    level: Number(m[4]),
-    id: `contribution-day-component-${m[2]}-${m[3]}`,
+    date,
+    dow: Number(id[1]),
+    week: Number(id[2]),
+    level,
+    id: attr(tag, "id"),
   });
 }
+if (!cells.length) throw new Error("GitHub contribution calendar was not found; contrib.json was not changed.");
+if (new Set(cells.map((c) => c.id)).size !== cells.length) throw new Error("Duplicate contribution day IDs.");
 
 // 2) Tooltip: jumlah kontribusi
-const reTip = /for="(contribution-day-component-\d+-\d+)"[^>]*>([^<]+)<\/tool-tip>/g;
+const reTip = /<tool-tip\b([^>]*)>([\s\S]*?)<\/tool-tip>/gi;
 const tips = {};
 let t;
 while ((t = reTip.exec(html))) {
-  const txt = t[2].trim();
-  let n = 0;
-  if (/^No contributions/i.test(txt)) n = 0;
+  const id = attr(t[1], "for");
+  if (!id) continue;
+  const txt = t[2].replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").trim();
+  if (/^No contributions\b/i.test(txt)) tips[id] = 0;
   else {
-    const num = txt.match(/^([\d,]+)\s+contribution/i);
-    if (num) n = Number(num[1].replace(/,/g, ""));
+    const num = txt.match(/\b([\d,]+)\s+contributions?\b/i);
+    if (num) tips[id] = Number(num[1].replace(/,/g, ""));
   }
-  tips[t[1]] = n;
 }
 
-for (const c of cells) c.count = tips[c.id] ?? 0;
+for (const c of cells) {
+  if (!Object.hasOwn(tips, c.id)) throw new Error(`Missing/unrecognized tooltip for ${c.date}; refusing to write incomplete data.`);
+  c.count = tips[c.id];
+  if (!Number.isSafeInteger(c.count) || c.count < 0) throw new Error(`Invalid contribution count for ${c.date}.`);
+  const day = new Date(`${c.date}T00:00:00Z`);
+  if (Number.isNaN(day.valueOf()) || day.toISOString().slice(0, 10) !== c.date || day.getUTCDay() !== c.dow) {
+    throw new Error(`Date/day mismatch in GitHub calendar at ${c.date}.`);
+  }
+}
+
+cells.sort((a, b) => a.date.localeCompare(b.date));
+for (let i = 1; i < cells.length; i++) {
+  const days = (Date.parse(`${cells[i].date}T00:00:00Z`) - Date.parse(`${cells[i - 1].date}T00:00:00Z`)) / 86_400_000;
+  if (days !== 1) throw new Error(`Contribution calendar has a date gap/duplicate before ${cells[i].date}.`);
+}
+const ageDays = Math.floor((Date.now() - Date.parse(`${cells.at(-1).date}T00:00:00Z`)) / 86_400_000);
+if (ageDays < -1 || ageDays > 3) throw new Error(`GitHub calendar looks stale (${cells.at(-1).date}); refusing to publish.`);
 
 const cols = Math.max(...cells.map((c) => c.week)) + 1;
 const rows = 7;
@@ -69,11 +100,13 @@ console.log("distribusi lvl :", JSON.stringify(dist));
 // Matriks level: matrix[dow][week]
 const matrix = Array.from({ length: rows }, () => Array(cols).fill(0));
 const counts = Array.from({ length: rows }, () => Array(cols).fill(0));
+const occupied = new Set();
 for (const c of cells) {
-  if (c.dow < rows && c.week < cols) {
-    matrix[c.dow][c.week] = c.level;
-    counts[c.dow][c.week] = c.count;
-  }
+  const slot = `${c.dow}:${c.week}`;
+  if (c.dow >= rows || c.week >= cols || occupied.has(slot)) throw new Error(`Invalid/duplicate calendar grid position for ${c.date}.`);
+  occupied.add(slot);
+  matrix[c.dow][c.week] = c.level;
+  counts[c.dow][c.week] = c.count;
 }
 
 // Streak terpanjang & sekarang

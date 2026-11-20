@@ -3,7 +3,6 @@ preview/
 _ref/
 crop.mjs
 render.mjs
-validate.mjs
 animcheck.mjs
 verify-live.mjs
 anim.mjs

@@ -186,21 +186,24 @@ function terrain() {
 
 /* ───────────────────── JALUR ULAR ───────────────────── */
 
-function buildPath() {
-  const pts = [];
-  for (let r = ROWS - 1; r >= 0; r--) {
-    const ltr = (ROWS - 1 - r) % 2 === 0;
-    if (ltr) for (let c = 0; c < COLS; c++) pts.push([c, r]);
-    else for (let c = COLS - 1; c >= 0; c--) pts.push([c, r]);
-  }
-  for (let r = 1; r < ROWS; r++) pts.push([COLS - 1, r]);
-  for (let c = COLS - 2; c >= 1; c--) pts.push([c, ROWS - 1]);
+function buildPath(width, height) {
+  const left = 24, right = width - 24, top = 24, bottom = height - 24;
+  const line = (start, end) => {
+    const direction = Math.sign(end - start);
+    const points = Array.from(
+      { length: Math.floor(Math.abs(end - start) / PITCH) + 1 },
+      (_, i) => start + direction * i * PITCH,
+    );
+    if (points.at(-1) !== end) points.push(end);
+    return points;
+  };
+  const xs = line(left, right), ys = line(top, bottom);
+  const pts = xs.map((x) => [x, top]);
+  for (const y of ys.slice(1)) pts.push([right, y]);
+  for (const x of line(right, left).slice(1)) pts.push([x, bottom]);
+  for (const y of line(bottom, top).slice(1, -1)) pts.push([left, y]);
   return pts;
 }
-
-const PATH = buildPath();
-const N = PATH.length;
-const PATH_XY = PATH.map(([c, r]) => [cellX(c) + CELL / 2, cellY(r) + CELL / 2]);
 
 const DUR = 40;
 // Badan ular = deretan kubus 3D yang saling menimpa, bukan satu garis tebal.
@@ -209,13 +212,15 @@ const DUR = 40;
 const SEGMENTS = 26;
 
 function snake() {
+  const path = buildPath(900, TOTAL_H);
+  const pathLength = path.length;
   const track = (lag) => {
     const out = [];
-    for (let j = 0; j <= N; j++) {
+    for (let j = 0; j <= pathLength; j++) {
       // Indeks jalur makin besar = makin MAJU. Jadi segmen harus mundur,
       // bukan maju: pakai (j - lag), bukan (j + lag). Kalau plus, badan
       // mendahului kepala dan ularnya jalan kebalik.
-      const [x, y] = PATH_XY[(j - lag + N) % N];
+      const [x, y] = path[(j - lag + pathLength) % pathLength];
       out.push(`${x},${y}`);
     }
     return out.join(";");
@@ -253,7 +258,7 @@ function snake() {
          <circle cx="${-half + s * 0.7}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>`
       : "";
 
-    out += `<g opacity="${(1 - tt * 0.25).toFixed(2)}">
+    out += `<g data-role="snake-segment" opacity="${(1 - tt * 0.25).toFixed(2)}">
       <animateTransform attributeName="transform" type="translate"
         values="${track(i)}" dur="${DUR}s" repeatCount="indefinite"/>
       ${sh.front}${sh.side}${sh.top}${front}${side}${top}${eyes}
@@ -354,7 +359,6 @@ ${breathe(
   )}
 
 <g>${terrain()}</g>
-${snake()}
 
 ${breathe(
     `<text x="54" y="${LEGEND_Y + 9}" font-family='${FF_MONO}' font-size="10" font-weight="700"
@@ -509,6 +513,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL
   <animate attributeName="opacity" values="0.65;1;0.65" dur="8s" repeatCount="indefinite"/>
 </ellipse>
 
+${snake()}
 ${inner}
 </svg>
 `;
@@ -519,4 +524,4 @@ writeFileSync("assets/profile.svg", svg);
 console.log("✓ assets/profile.svg", `900x${TOTAL_H}`);
 console.log("  font disematkan:", Math.round((FONT_GROTESK.length + FONT_MONO400.length + FONT_MONO700.length) / 1024), "KB base64");
 console.log("  kontribusi     :", contrib.total);
-console.log("  waypoint ular  :", N, "· segmen:", SEGMENTS);
+console.log("  waypoint ular  :", buildPath(900, TOTAL_H).length, "· segmen:", SEGMENTS);
