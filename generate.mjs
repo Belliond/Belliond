@@ -205,7 +205,7 @@ function buildPath(width, height) {
   return pts;
 }
 
-const DUR = 40;
+const DUR = 20;
 // Badan ular = deretan kubus 3D yang saling menimpa, bukan satu garis tebal.
 // Tiap segmen tertinggal 1 waypoint dari segmen di depannya; karena jarak
 // antar waypoint = PITCH (15px) dan lebar segmen 15px, kubusnya bersambung.
@@ -291,9 +291,9 @@ function sectionLabel(x, y, text, fill) {
 
 function heroSection() {
   const stats = [
-    { n: contrib.total, l: "KONTRIBUSI" },
-    { n: contrib.active, l: "HARI AKTIF" },
-    { n: contrib.best, l: "STREAK TERBAIK" },
+    { n: contrib.total, l: "CONTRIBUTIONS" },
+    { n: contrib.active, l: "ACTIVE DAYS" },
+    { n: contrib.best, l: "BEST STREAK" },
   ];
 
   const cardW = 249;
@@ -334,7 +334,7 @@ function heroSection() {
   }).join("");
 
   const body = `
-${breathe(sectionLabel(54, 60, "// PUSAT KENDALI"), { dur: 4.2 })}
+${breathe(sectionLabel(54, 60, "// MISSION CONTROL"), { dur: 4.2 })}
 
 ${sway(
     `<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
@@ -344,17 +344,17 @@ ${sway(
 
 ${breathe(
     `<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
-      fill="${T.textSoft}">Teknik Informatika · Institut Teknologi Sumatera · Lampung</text>`,
+      fill="${T.textSoft}">Computer Science · Institut Teknologi Sumatera · Lampung</text>`,
     { dur: 6.5, from: 0.6, to: 1, delay: 1.2 }
   )}
 
 ${statCards}
 
 ${marchingLine(54, DIVIDER_Y, 846, DIVIDER_Y, { color: T.border, width: 2, dash: "10 8", dur: 2.6 })}
-${breathe(sectionLabel(54, 404, "// PETA KONTRIBUSI"), { dur: 5, delay: 0.8 })}
+${breathe(sectionLabel(54, 404, "// CONTRIBUTION TERRAIN"), { dur: 5, delay: 0.8 })}
 ${breathe(
     `<text x="846" y="404" text-anchor="end" font-family='${FF_MONO}' font-size="11"
-      fill="${T.textSoft}" letter-spacing="0.5">365 HARI · ${contrib.total} TOTAL</text>`,
+      fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>`,
     { dur: 6, from: 0.65, to: 1, delay: 2 }
   )}
 
@@ -362,13 +362,13 @@ ${breathe(
 
 ${breathe(
     `<text x="54" y="${LEGEND_Y + 9}" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">SEDIKIT</text>`,
+      fill="${T.textSoft}" letter-spacing="1.4">LESS</text>`,
     { dur: 4, from: 0.6, to: 1 }
   )}
 ${legend}
 ${breathe(
     `<text x="846" y="${LEGEND_Y + 9}" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">BANYAK</text>`,
+      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>`,
     { dur: 4, from: 0.6, to: 1, delay: 2 }
   )}`;
 
@@ -414,10 +414,10 @@ function stackSection() {
   }
 
   const body = `
-${breathe(sectionLabel(54, 52, "// SINYAL AKTIF"), { dur: 4.6, delay: 0.4 })}
+${breathe(sectionLabel(54, 52, "// ACTIVE STACK"), { dur: 4.6, delay: 0.4 })}
 ${sway(
     `<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
-      fill="${T.text}" letter-spacing="-1">Yang kupakai sehari-hari</text>`,
+      fill="${T.text}" letter-spacing="-1">My Tech Arsenal</text>`,
     { dur: 12, amp: 2 }
   )}
 ${out}`;
@@ -455,7 +455,7 @@ function linksSection() {
 ${out}
 ${breathe(
     `<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.6">DIBANGUN · DIPERBAIKI · DIPAKAI</text>`,
+      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>`,
     { dur: 5.5, from: 0.5, to: 1, delay: 1.5 }
   )}`;
 
@@ -487,7 +487,7 @@ for (const s of SECTIONS) {
 
 const TOTAL_H = y - SECTION_GAP + BOTTOM_PAD;
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — profil">
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — GitHub profile">
 <defs>
   ${FONT_DEFS}
   <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">

@@ -49,11 +49,16 @@ if (!size || size[3] !== `0 0 ${size[1]} ${size[2]}`) fail("SVG dimensions/viewB
 const height = Number(size[2]);
 const segments = [...svg.matchAll(/<g data-role="snake-segment"[\s\S]*?<animateTransform\b[^>]*values="([^"]+)"/g)];
 if (segments.length !== 26) fail(`Expected 26 animated snake segments; found ${segments.length}.`);
+if (!/<animateTransform\b[^>]*dur="20s"/.test(svg)) fail("Snake lap should take 20 seconds so the motion is visible.");
 const points = segments.flatMap(([, values]) => [...values.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]));
 const bounds = points.reduce((b, [x, y]) => ({ minX: Math.min(b.minX, x), maxX: Math.max(b.maxX, x), minY: Math.min(b.minY, y), maxY: Math.max(b.maxY, y) }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
 if (bounds.minX !== 24 || bounds.maxX !== 876 || bounds.minY !== 24 || bounds.maxY !== height - 24) fail("Snake path does not go around the full profile card.");
 if ((svg.match(/data:font\/woff2;base64,/g) || []).length !== 3) fail("Expected all three embedded fonts.");
 for (const [, file] of readme.matchAll(/assets\/([a-z-]+\.svg)/g)) if (!svg || !readFileSync(`assets/${file}`, "utf8")) fail(`README SVG is missing: ${file}`);
+if (!/assets\/profile\.svg\?v=[\da-f]{12}/.test(readme)) fail("README image URL needs a content hash to invalidate GitHub's image cache.");
+const { createHash } = await import("node:crypto");
+const svgHash = createHash("sha256").update(svg).digest("hex").slice(0, 12);
+if (!readme.includes(`assets/profile.svg?v=${svgHash}`)) fail("README cache-buster does not match the generated SVG.");
 const tags = [...svg.matchAll(/<\/?[A-Za-z][^>]*>/g)].map((m) => m[0]);
 const stack = [];
 for (const tag of tags) {

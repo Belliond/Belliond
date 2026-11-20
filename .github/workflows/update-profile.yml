@@ -28,12 +28,13 @@ jobs:
         run: node validate.mjs --check-fresh
       - name: Commit changed profile files
         run: |
-          if git diff --quiet -- contrib.json assets/profile.svg; then
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto"),p="README.md",r=fs.readFileSync(p,"utf8"),v=crypto.createHash("sha256").update(fs.readFileSync("assets/profile.svg")).digest("hex").slice(0,12),n=r.replace(/assets\/profile\.svg\?v=[^\s"]+/,"assets/profile.svg?v="+v); if(n===r&&!r.includes("assets/profile.svg?v="+v)) throw Error("README image URL missing"); fs.writeFileSync(p,n)'
+          if git diff --quiet -- contrib.json assets/profile.svg README.md; then
             echo "Profile is already up to date."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add contrib.json assets/profile.svg
+          git add contrib.json assets/profile.svg README.md
           git commit -m "chore: refresh live contribution profile"
           git push
