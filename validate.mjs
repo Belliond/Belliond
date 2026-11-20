@@ -47,15 +47,20 @@ if (freshCheck) {
 const size = svg.match(/<svg\b[^>]*width="(\d+)"[^>]*height="(\d+)"[^>]*viewBox="([^"]+)"/);
 if (!size || size[3] !== `0 0 ${size[1]} ${size[2]}`) fail("SVG dimensions/viewBox are invalid.");
 const height = Number(size[2]);
-const segments = [...svg.matchAll(/<g data-role="snake-segment"[\s\S]*?<animateTransform\b[^>]*values="([^"]+)"/g)];
+const segments = [...svg.matchAll(/data-role="snake-segment"/g)];
 if (segments.length !== 26) fail(`Expected 26 animated snake segments; found ${segments.length}.`);
-if (!/<animateTransform\b[^>]*dur="20s"/.test(svg)) fail("Snake lap should take 20 seconds so the motion is visible.");
-const points = segments.flatMap(([, values]) => [...values.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]));
-const bounds = points.reduce((b, [x, y]) => ({ minX: Math.min(b.minX, x), maxX: Math.max(b.maxX, x), minY: Math.min(b.minY, y), maxY: Math.max(b.maxY, y) }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-if (bounds.minX !== 24 || bounds.maxX !== 876 || bounds.minY !== 24 || bounds.maxY !== height - 24) fail("Snake path does not go around the full profile card.");
+if (!svg.includes('<path id="snake-route"') || !/<animateMotion\b[^>]*dur="28s"/.test(svg)) fail("Snake route or variable-motion animation is missing.");
+const route = svg.match(/<path id="snake-route" d="([^"]+)"/);
+const routePoints = [...(route?.[1] || "").matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]);
+if (routePoints.length < 500) fail("Snake route is missing its varied interior path.");
+const bounds = routePoints.reduce((b, [x, y]) => ({ minX: Math.min(b.minX, x), maxX: Math.max(b.maxX, x), minY: Math.min(b.minY, y), maxY: Math.max(b.maxY, y) }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+if (bounds.minX > 40 || bounds.maxX < 860 || bounds.minY > 64 || bounds.maxY < height - 64) fail("Snake route does not sweep across the card and interior.");
+const impactTargets = [...svg.matchAll(/data-role="impact-target"/g)];
+if (impactTargets.length < 50 || !svg.includes("<feDisplacementMap") || !svg.includes("attributeName=\"opacity\" values=\"1;0.28;0.04;0.3;1;1\"") || !svg.includes("keyTimes=\"0;0.02;0.05;0.07;0.09;1\"")) fail("Snake collision distortion/restore effects are missing.");
+const textContent = [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) => m[1].replace(/<[^>]*>/g, " ").replace(/&(?:amp|lt|gt|quot|apos);/g, " ").trim()).join(" ");
+if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|\b(?:kontribusi|hari|streak terbaik|peta|sinyal|sedikit|banyak|yang kupakai|dibangun|diperbaiki|dipakai|teknik informatika|sumatera)\b/i.test(textContent)) fail("Visible profile copy must be English-only.");
 if ((svg.match(/data:font\/woff2;base64,/g) || []).length !== 3) fail("Expected all three embedded fonts.");
 for (const [, file] of readme.matchAll(/assets\/([a-z-]+\.svg)/g)) if (!svg || !readFileSync(`assets/${file}`, "utf8")) fail(`README SVG is missing: ${file}`);
-if (!/assets\/profile\.svg\?v=[\da-f]{12}/.test(readme)) fail("README image URL needs a content hash to invalidate GitHub's image cache.");
 const { createHash } = await import("node:crypto");
 const svgHash = createHash("sha256").update(svg).digest("hex").slice(0, 12);
 if (!readme.includes(`assets/profile.svg?v=${svgHash}`)) fail("README cache-buster does not match the generated SVG.");
@@ -69,4 +74,4 @@ for (const tag of tags) {
 if (stack.length) fail(`Unclosed SVG tag: ${stack.at(-1)}`);
 
 console.log(`✓ data ${contrib.total} contributions · ${contrib.active} active days · best streak ${contrib.best} · current ${contrib.cur}`);
-console.log(`✓ SVG 900x${height} · ${segments.length} snake segments around full profile · embedded fonts and balanced tags`);
+console.log(`✓ SVG 900x${height} · ${segments.length} segments, ${impactTargets.length} collision zones, English-only text · embedded fonts and balanced tags`);

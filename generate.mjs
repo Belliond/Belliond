@@ -159,9 +159,7 @@ function marchingLine(x1, y1, x2, y2, { color, width = 2, dash = "6 6", dur = 3,
 }
 
 // Grid kontribusi versi 2D datar: tidak ada pilar/top/side sama sekali.
-// Intensitas commit dibaca dari warna sel (LEVELS), bukan dari tinggi kubus.
-// Tiap KOLOM dibungkus satu grup yang bergoyang dengan fase berbeda, jadi
-// grid-nya seperti gelombang pelan yang menyapu dari kiri ke kanan.
+// Commit intensity is encoded by cell color; each column reacts to the snake.
 function terrain() {
   const cols = [];
 
@@ -178,7 +176,7 @@ function terrain() {
           : `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2"
               fill="${LEVELS[lvl]}" stroke="#0b1411" stroke-width="1"/>`;
     }
-    cols.push(bob(cells, { dur: 9, amp: 1.6, delay: c * 0.14 }));
+    cols.push(impact(bob(cells, { dur: 9, amp: 1.6, delay: c * 0.14 }), cellX(c) + CELL / 2, GRID_Y + GRID_H / 2));
   }
 
   return cols.join("");
@@ -186,46 +184,97 @@ function terrain() {
 
 /* ───────────────────── JALUR ULAR ───────────────────── */
 
-function buildPath(width, height) {
-  const left = 24, right = width - 24, top = 24, bottom = height - 24;
-  const line = (start, end) => {
-    const direction = Math.sign(end - start);
-    const points = Array.from(
-      { length: Math.floor(Math.abs(end - start) / PITCH) + 1 },
-      (_, i) => start + direction * i * PITCH,
-    );
-    if (points.at(-1) !== end) points.push(end);
-    return points;
-  };
-  const xs = line(left, right), ys = line(top, bottom);
-  const pts = xs.map((x) => [x, top]);
-  for (const y of ys.slice(1)) pts.push([right, y]);
-  for (const x of line(right, left).slice(1)) pts.push([x, bottom]);
-  for (const y of line(bottom, top).slice(1, -1)) pts.push([left, y]);
-  return pts;
+const ROUTE_DUR = 28;
+const IMPACTS = [];
+
+function impact(inner, x, y) {
+  const id = IMPACTS.length;
+  IMPACTS.push({ inner, x, y });
+  return `@@IMPACT_${id}@@`;
 }
 
-const DUR = 20;
+function buildPath(width, height) {
+  const left = 18, right = width - 18, top = 24, bottom = height - 24;
+  const cx = width / 2, cy = height / 2;
+  const ax = Math.min(cx - left - 16, right - cx - 16);
+  const ay = cy - top - 20;
+  const waves = [
+    (t) => [ax * Math.sin(t), ay * Math.sin(2 * t)],
+    (t) => [ax * Math.sin(2 * t), ay * 0.82 * Math.sin(3 * t)],
+    (t) => [ax * 0.82 * Math.sin(3 * t), ay * Math.sin(2 * t)],
+    (t) => [ax * (0.88 * Math.sin(t) + 0.12 * Math.sin(4 * t)), ay * 0.78 * Math.sin(3 * t)],
+    (t) => [ax * 0.76 * Math.sin(2 * t), ay * (0.82 * Math.sin(t) + 0.18 * Math.sin(4 * t))],
+    (t) => [ax * Math.sin(t), ay * 0.9 * Math.sin(5 * t)],
+  ];
+  const points = [];
+  for (const wave of waves) {
+    for (let i = 0; i <= 96; i++) {
+      const [x, y] = wave((i / 96) * Math.PI * 2);
+      points.push([cx + x, cy + y]);
+    }
+  }
+
+  let length = 0;
+  const distances = [0];
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    distances.push(length);
+  }
+  const d = `M${points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L")}`;
+
+  function phaseAt(x, y) {
+    let bestDistance = Infinity, bestPosition = 0;
+    for (let i = 1; i < points.length; i++) {
+      const [x1, y1] = points[i - 1], [x2, y2] = points[i];
+      const dx = x2 - x1, dy = y2 - y1;
+      const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy || 1)));
+      const px = x1 + t * dx, py = y1 + t * dy;
+      const distance = Math.hypot(x - px, y - py);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPosition = distances[i - 1] + t * (distances[i] - distances[i - 1]);
+      }
+    }
+    return { phase: (bestPosition / length) * ROUTE_DUR, distance: bestDistance };
+  }
+
+  return { points, d, length, phaseAt };
+}
+
+function applyImpacts(inner, route) {
+  const filters = [];
+  let impacted = 0;
+  for (let i = 0; i < IMPACTS.length; i++) {
+    const { inner: content, x, y } = IMPACTS[i];
+    const hit = route.phaseAt(x, y);
+    if (hit.distance > 58) {
+      inner = inner.replace(`@@IMPACT_${i}@@`, content);
+      continue;
+    }
+    const id = `impact-${i}`;
+    const phase = hit.phase.toFixed(2);
+    impacted++;
+    filters.push(`<filter id="${id}" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035 0.012" numOctaves="2" seed="${(i % 17) + 1}" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="0;16;32;10;0;0" keyTimes="0;0.015;0.04;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/>
+      </feDisplacementMap>
+    </filter>`);
+    const wrapped = `<g data-role="impact-target" data-impact-phase="${phase}" filter="url(#${id})" opacity="1">
+      <animate attributeName="opacity" values="1;0.28;0.04;0.3;1;1" keyTimes="0;0.02;0.05;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/>
+      <g>${content}<animateTransform attributeName="transform" type="translate" values="0,0;6,-2;-5,3;3,0;0,0;0,0" keyTimes="0;0.015;0.04;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/></g>
+    </g>`;
+    inner = inner.replace(`@@IMPACT_${i}@@`, wrapped);
+  }
+  return { inner, filters: filters.join("\n"), impacted };
+}
+
 // Badan ular = deretan kubus 3D yang saling menimpa, bukan satu garis tebal.
 // Tiap segmen tertinggal 1 waypoint dari segmen di depannya; karena jarak
 // antar waypoint = PITCH (15px) dan lebar segmen 15px, kubusnya bersambung.
 const SEGMENTS = 26;
 
-function snake() {
-  const path = buildPath(900, TOTAL_H);
-  const pathLength = path.length;
-  const track = (lag) => {
-    const out = [];
-    for (let j = 0; j <= pathLength; j++) {
-      // Indeks jalur makin besar = makin MAJU. Jadi segmen harus mundur,
-      // bukan maju: pakai (j - lag), bukan (j + lag). Kalau plus, badan
-      // mendahului kepala dan ularnya jalan kebalik.
-      const [x, y] = path[(j - lag + pathLength) % pathLength];
-      out.push(`${x},${y}`);
-    }
-    return out.join(";");
-  };
-
+function snake(route) {
   let out = "";
 
   // Gambar dari ekor ke kepala supaya kepala selalu di atas
@@ -258,9 +307,9 @@ function snake() {
          <circle cx="${-half + s * 0.7}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>`
       : "";
 
+    const lag = (i * PITCH / route.length * ROUTE_DUR).toFixed(3);
     out += `<g data-role="snake-segment" opacity="${(1 - tt * 0.25).toFixed(2)}">
-      <animateTransform attributeName="transform" type="translate"
-        values="${track(i)}" dur="${DUR}s" repeatCount="indefinite"/>
+      <animateMotion dur="${ROUTE_DUR}s" begin="-${lag}s" rotate="auto" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
       ${sh.front}${sh.side}${sh.top}${front}${side}${top}${eyes}
     </g>`;
   }
@@ -318,7 +367,7 @@ function heroSection() {
             fill="${T.text}" letter-spacing="-1">${s.n}</text>`,
         { dur: 4.5, from: 0.72, to: 1, delay: i * 1.1 }
       )}`;
-      return bob(body, { dur: 7 + i * 0.8, amp: 2.2, delay: i * 1.3 });
+      return impact(bob(body, { dur: 7 + i * 0.8, amp: 2.2, delay: i * 1.3 }), x + cardW / 2, cardY + cardH / 2);
     })
     .join("\n    ");
 
@@ -326,51 +375,51 @@ function heroSection() {
   // tidak bertabrakan dengan "BANYAK" yang rata kanan di 846.
   const legend = LEVELS.map((c, i) => {
     const x = 712 + i * 15;
-    return bob(
+    return impact(bob(
       `<rect x="${x}" y="${LEGEND_Y}" width="11" height="11" rx="2" fill="${c}"
         stroke="#0b1411" stroke-width="1"/>`,
       { dur: 3.4, amp: 2.4, delay: i * 0.28 }
-    );
+    ), x + 5, LEGEND_Y + 5);
   }).join("");
 
   const body = `
-${breathe(sectionLabel(54, 60, "// MISSION CONTROL"), { dur: 4.2 })}
+${impact(breathe(sectionLabel(54, 60, "// MISSION CONTROL"), { dur: 4.2 }), 260, 60)}
 
-${sway(
+${impact(sway(
     `<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
       fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>`,
     { dur: 11, amp: 2.5 }
-  )}
+  ), 330, 122)}
 
-${breathe(
+${impact(breathe(
     `<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
-      fill="${T.textSoft}">Computer Science · Institut Teknologi Sumatera · Lampung</text>`,
+      fill="${T.textSoft}">Computer Science · Sumatra Institute of Technology · Lampung</text>`,
     { dur: 6.5, from: 0.6, to: 1, delay: 1.2 }
-  )}
+  ), 420, 158)}
 
 ${statCards}
 
-${marchingLine(54, DIVIDER_Y, 846, DIVIDER_Y, { color: T.border, width: 2, dash: "10 8", dur: 2.6 })}
-${breathe(sectionLabel(54, 404, "// CONTRIBUTION TERRAIN"), { dur: 5, delay: 0.8 })}
-${breathe(
+${impact(marchingLine(54, DIVIDER_Y, 846, DIVIDER_Y, { color: T.border, width: 2, dash: "10 8", dur: 2.6 }), 450, DIVIDER_Y)}
+${impact(breathe(sectionLabel(54, 404, "// CONTRIBUTION TERRAIN"), { dur: 5, delay: 0.8 }), 310, 404)}
+${impact(breathe(
     `<text x="846" y="404" text-anchor="end" font-family='${FF_MONO}' font-size="11"
       fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>`,
     { dur: 6, from: 0.65, to: 1, delay: 2 }
-  )}
+  ), 740, 404)}
 
 <g>${terrain()}</g>
 
-${breathe(
+${impact(breathe(
     `<text x="54" y="${LEGEND_Y + 9}" font-family='${FF_MONO}' font-size="10" font-weight="700"
       fill="${T.textSoft}" letter-spacing="1.4">LESS</text>`,
     { dur: 4, from: 0.6, to: 1 }
-  )}
+  ), 70, LEGEND_Y + 9)}
 ${legend}
-${breathe(
+${impact(breathe(
     `<text x="846" y="${LEGEND_Y + 9}" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
       fill="${T.textSoft}" letter-spacing="1.4">MORE</text>`,
     { dur: 4, from: 0.6, to: 1, delay: 2 }
-  )}`;
+  ), 805, LEGEND_Y + 9)}`;
 
   return { h: 600, body };
 }
@@ -408,18 +457,18 @@ function stackSection() {
       <text x="${x + PAD}" y="${y + H / 2 + 4.6}" font-family='${FF_MONO}' font-size="12" font-weight="700"
             fill="${T.textSoft}" letter-spacing="0.4">${esc(name)}</text>
     </g>`;
-    out += bob(chip, { dur: 5.5 + (i % 4) * 0.7, amp: 2.4, delay: (i % 7) * 0.45 });
+    out += impact(bob(chip, { dur: 5.5 + (i % 4) * 0.7, amp: 2.4, delay: (i % 7) * 0.45 }), x + w / 2, y + H / 2);
     x += w + GAP;
     i++;
   }
 
   const body = `
-${breathe(sectionLabel(54, 52, "// ACTIVE STACK"), { dur: 4.6, delay: 0.4 })}
-${sway(
+${impact(breathe(sectionLabel(54, 52, "// ACTIVE STACK"), { dur: 4.6, delay: 0.4 }), 240, 52)}
+${impact(sway(
     `<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
       fill="${T.text}" letter-spacing="-1">My Tech Arsenal</text>`,
     { dur: 12, amp: 2 }
-  )}
+  ), 310, 86)}
 ${out}`;
 
   return { h: y + H + 28, body };
@@ -446,31 +495,38 @@ function linksSection() {
     <text x="${x + 22}" y="54.4" font-family='${FF_MONO}' font-size="12" font-weight="700"
           fill="${T.textSoft}" letter-spacing="0.3">${esc(it.label)}</text>
   </a>`;
-    out += bob(btn, { dur: 6 + i * 0.9, amp: 2.6, delay: i * 0.7 });
+    out += impact(bob(btn, { dur: 6 + i * 0.9, amp: 2.6, delay: i * 0.7 }), x + w / 2, 52);
     x += w + 14;
     i++;
   }
 
   const body = `
 ${out}
-${breathe(
+${impact(breathe(
     `<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
       fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>`,
     { dur: 5.5, from: 0.5, to: 1, delay: 1.5 }
-  )}`;
+  ), 730, 54)}`;
 
   return { h: 104, body };
 }
 
 /* ───────────────────────── GABUNGKAN ───────────────────────── */
 
-const SECTIONS = [heroSection(), stackSection(), linksSection()];
+const SECTIONS = [];
+for (const build of [heroSection, stackSection, linksSection]) {
+  const firstImpact = IMPACTS.length;
+  const section = build();
+  section.impactRange = [firstImpact, IMPACTS.length];
+  SECTIONS.push(section);
+}
 const SECTION_GAP = 40;
 const BOTTOM_PAD = 28;
 
 let y = 0;
 let inner = "";
 for (const s of SECTIONS) {
+  for (let i = s.impactRange[0]; i < s.impactRange[1]; i++) IMPACTS[i].y += y;
   // pemisah tipis antar seksi, kecuali sebelum seksi pertama
   if (y > 0) {
     inner += marchingLine(54, y - SECTION_GAP / 2, 846, y - SECTION_GAP / 2, {
@@ -486,8 +542,10 @@ for (const s of SECTIONS) {
 }
 
 const TOTAL_H = y - SECTION_GAP + BOTTOM_PAD;
+const route = buildPath(900, TOTAL_H);
+const impacted = applyImpacts(inner, route);
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — GitHub profile">
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — GitHub profile">
 <defs>
   ${FONT_DEFS}
   <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">
@@ -503,6 +561,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL
   <pattern id="dotField" width="28" height="28" patternUnits="userSpaceOnUse">
     <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
   </pattern>
+  <path id="snake-route" d="${route.d}" fill="none"/>
+  ${impacted.filters}
 </defs>
 
 <rect width="900" height="${TOTAL_H}" fill="${T.bg}"/>
@@ -513,8 +573,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL
   <animate attributeName="opacity" values="0.65;1;0.65" dur="8s" repeatCount="indefinite"/>
 </ellipse>
 
-${snake()}
-${inner}
+${impacted.inner}
+${snake(route)}
 </svg>
 `;
 
@@ -524,4 +584,4 @@ writeFileSync("assets/profile.svg", svg);
 console.log("✓ assets/profile.svg", `900x${TOTAL_H}`);
 console.log("  font disematkan:", Math.round((FONT_GROTESK.length + FONT_MONO400.length + FONT_MONO700.length) / 1024), "KB base64");
 console.log("  kontribusi     :", contrib.total);
-console.log("  waypoint ular  :", buildPath(900, TOTAL_H).length, "· segmen:", SEGMENTS);
+console.log("  snake pattern  :", route.points.length, "waypoints ·", impacted.impacted, "impact zones ·", SEGMENTS, "segments");
