@@ -55,13 +55,18 @@ const FONT_DEFS = `<style>
 
 const PITCH = 15;
 const CELL = 11;
-const DEPTH = 4;
 const COLS = contrib.cols;
 const ROWS = 7;
 const GRID_W = COLS * PITCH - (PITCH - CELL);
 const GRID_X = Math.round((900 - GRID_W) / 2);
-// Pilar tertinggi = 10 + 4*13 = 62px di atas dasar sel, plus 4px sisi atas.
-const GRID_Y = 520;
+// Grid 2D datar: 7 baris x PITCH = 105px, dikurangi sisa (PITCH - CELL).
+const GRID_H = ROWS * PITCH - (PITCH - CELL);
+const GRID_Y = 440;
+
+// Titik-titik tetap di seksi hero, ditulis sebagai konstanta supaya label dan
+// legenda tidak meleset kalau grid digeser.
+const DIVIDER_Y = 366;
+const LEGEND_Y = 562;
 
 const cellX = (c) => GRID_X + c * PITCH;
 const cellY = (r) => GRID_Y + r * PITCH;
@@ -100,48 +105,83 @@ function mix(a, b, t) {
 /* Skala level: hijau redup → hijau terang (sesuai aksen situs) */
 const LEVELS = ["#0e1a15", "#1a4d3a", "#19d991", "#4dffb2", "#a6ffdb"];
 
-function terrain() {
-  let flat = "";
-  let pillars = "";
+/* ───────────────────── MESIN GERAK (SMIL) ───────────────────── */
+// Semua elemen digerakkan lewat <animateTransform> / <animate> supaya SVG ini
+// tetap "hidup" walau dirender sebagai <img> (tanpa JS, tanpa CSS halaman).
+//
+// Nilai gerak dibuat dari banyak sampel sinus, bukan keySplines: spline di
+// SVG-yang-dirender-sebagai-<img> dukungannya beda-beda antar browser, sedang
+// polyline padat hasilnya sama halusnya dan aman di mana saja.
+//
+// begin negatif = animasi dianggap sudah jalan sejak sekian detik lalu. Itu
+// trik supaya tiap elemen punya fase berbeda tanpa ada yang "menunggu" dulu.
 
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+const SINE_SAMPLES = 20;
+
+function sineValues(amp, axis = "y") {
+  const out = [];
+  for (let i = 0; i <= SINE_SAMPLES; i++) {
+    const a = (i / SINE_SAMPLES) * Math.PI * 2;
+    const v = (Math.sin(a) * amp).toFixed(2);
+    out.push(axis === "y" ? `0,${v}` : `${v},0`);
+  }
+  return out.join(";");
+}
+
+// Melayang naik-turun pelan.
+function bob(inner, { dur = 8, amp = 1.6, delay = 0 } = {}) {
+  return `<g>${inner}<animateTransform attributeName="transform" type="translate"
+      values="${sineValues(amp, "y")}" dur="${dur}s" begin="${-delay}s"
+      repeatCount="indefinite"/></g>`;
+}
+
+// Bergoyang kiri-kanan pelan.
+function sway(inner, { dur = 9, amp = 2, delay = 0 } = {}) {
+  return `<g>${inner}<animateTransform attributeName="transform" type="translate"
+      values="${sineValues(amp, "x")}" dur="${dur}s" begin="${-delay}s"
+      repeatCount="indefinite"/></g>`;
+}
+
+// Napas: opasitas naik-turun, untuk label dan teks yang tidak boleh goyang
+// posisinya (biar tetap enak dibaca).
+function breathe(inner, { dur = 5, from = 0.55, to = 1, delay = 0 } = {}) {
+  return `<g opacity="${from}">${inner}<animate attributeName="opacity"
+      values="${from};${to};${from}" dur="${dur}s" begin="${-delay}s"
+      repeatCount="indefinite"/></g>`;
+}
+
+// Garis putus-putus yang berjalan.
+function marchingLine(x1, y1, x2, y2, { color, width = 2, dash = "6 6", dur = 3, opacity = 1 } = {}) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+      stroke="${color}" stroke-width="${width}" stroke-dasharray="${dash}"
+      opacity="${opacity}"><animate attributeName="stroke-dashoffset"
+      values="0;-24" dur="${dur}s" repeatCount="indefinite"/></line>`;
+}
+
+// Grid kontribusi versi 2D datar: tidak ada pilar/top/side sama sekali.
+// Intensitas commit dibaca dari warna sel (LEVELS), bukan dari tinggi kubus.
+// Tiap KOLOM dibungkus satu grup yang bergoyang dengan fase berbeda, jadi
+// grid-nya seperti gelombang pelan yang menyapu dari kiri ke kanan.
+function terrain() {
+  const cols = [];
+
+  for (let c = 0; c < COLS; c++) {
+    let cells = "";
+    for (let r = 0; r < ROWS; r++) {
       const x = cellX(c);
       const y = cellY(r);
       const lvl = contrib.matrix[r][c];
-      if (lvl === 0) {
-        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="#0b1411" stroke="#123026" stroke-width="0.8"/>`;
-      } else {
-        flat += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="#123026"/>`;
-      }
+      cells +=
+        lvl === 0
+          ? `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2"
+              fill="#0b1411" stroke="#123026" stroke-width="1"/>`
+          : `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2"
+              fill="${LEVELS[lvl]}" stroke="#0b1411" stroke-width="1"/>`;
     }
+    cols.push(bob(cells, { dur: 9, amp: 1.6, delay: c * 0.14 }));
   }
 
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const lvl = contrib.matrix[r][c];
-      if (lvl === 0) continue;
-      const x = cellX(c);
-      const baseBottom = cellY(r) + CELL;
-      const h = 10 + lvl * 13;
-      const yTop = baseBottom - h;
-      const base = LEVELS[lvl];
-      const { front, top, side } = box(
-        x,
-        yTop,
-        CELL,
-        h,
-        DEPTH,
-        shade(base, 0.3),
-        base,
-        shade(base, -0.45),
-        "#0b1411"
-      );
-      pillars += `<g>${front}${side}${top}</g>`;
-    }
-  }
-
-  return flat + pillars;
+  return cols.join("");
 }
 
 /* ───────────────────── JALUR ULAR ───────────────────── */
@@ -246,13 +286,13 @@ function sectionLabel(x, y, text, fill) {
 
 function heroSection() {
   const stats = [
-    { n: contrib.total, l: "CONTRIBUTIONS", c: "sepanjang setahun" },
-    { n: contrib.active, l: "ACTIVE DAYS", c: "hari ada commit" },
-    { n: contrib.best, l: "DAY STREAK", c: "berturut-turut" },
+    { n: contrib.total, l: "KONTRIBUSI" },
+    { n: contrib.active, l: "HARI AKTIF" },
+    { n: contrib.best, l: "STREAK TERBAIK" },
   ];
 
   const cardW = 249;
-  const cardH = 152;
+  const cardH = 128;
   const gap = 22;
   const startX = 54;
   const cardY = 200;
@@ -261,52 +301,74 @@ function heroSection() {
     .map((s, i) => {
       const x = startX + i * (cardW + gap);
       const idx = String(i + 1).padStart(2, "0");
-      return `<g>
+      // Angka besar ikut berdenyut pelan (skala 1 -> 1.03), labelnya tetap.
+      const body = `
       ${card(x, cardY, cardW, cardH)}
-      <text x="${x + 24}" y="${cardY + 36}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
+      <text x="${x + 24}" y="${cardY + 34}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
             fill="${T.textSoft}" letter-spacing="3">${s.l}</text>
-      <text x="${x + cardW - 24}" y="${cardY + 36}" text-anchor="end" font-family='${FF_MONO}' font-size="11"
+      <text x="${x + cardW - 24}" y="${cardY + 34}" text-anchor="end" font-family='${FF_MONO}' font-size="11"
             font-weight="700" fill="${T.greenDark}" letter-spacing="1">${idx}</text>
-      <text x="${x + 24}" y="${cardY + 94}" font-family='${FF_HEAD}' font-size="48" font-weight="700"
-            fill="${T.text}" letter-spacing="-1">${s.n}</text>
-      <text x="${x + 24}" y="${cardY + 124}" font-family='${FF_HEAD}' font-size="14"
-            fill="${T.textSoft}">${s.c}</text>
-    </g>`;
+      ${breathe(
+        `<text x="${x + 24}" y="${cardY + 96}" font-family='${FF_HEAD}' font-size="50" font-weight="700"
+            fill="${T.text}" letter-spacing="-1">${s.n}</text>`,
+        { dur: 4.5, from: 0.72, to: 1, delay: i * 1.1 }
+      )}`;
+      return bob(body, { dur: 7 + i * 0.8, amp: 2.2, delay: i * 1.3 });
     })
     .join("\n    ");
 
-  // Rata kanan: swatch 5 x 11px pitch 15 = 71px, berakhir di 812, "MORE" di 846.
+  // Rata kanan: swatch 5 x 11px pitch 15 = 71px, berakhir di ~783 supaya
+  // tidak bertabrakan dengan "BANYAK" yang rata kanan di 846.
   const legend = LEVELS.map((c, i) => {
-    const x = 741 + i * 15;
-    return `<rect x="${x}" y="662" width="11" height="11" rx="2" fill="${c}" stroke="#0b1411" stroke-width="1"/>`;
+    const x = 712 + i * 15;
+    return bob(
+      `<rect x="${x}" y="${LEGEND_Y}" width="11" height="11" rx="2" fill="${c}"
+        stroke="#0b1411" stroke-width="1"/>`,
+      { dur: 3.4, amp: 2.4, delay: i * 0.28 }
+    );
   }).join("");
 
   const body = `
-${sectionLabel(54, 60, "// MISSION CONTROL")}
+${breathe(sectionLabel(54, 60, "// PUSAT KENDALI"), { dur: 4.2 })}
 
-<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
-      fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>
+${sway(
+    `<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
+      fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>`,
+    { dur: 11, amp: 2.5 }
+  )}
 
-<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
-      fill="${T.textSoft}">Informatics Engineering · Institut Teknologi Sumatera · Lampung</text>
+${breathe(
+    `<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
+      fill="${T.textSoft}">Teknik Informatika · Institut Teknologi Sumatera · Lampung</text>`,
+    { dur: 6.5, from: 0.6, to: 1, delay: 1.2 }
+  )}
 
 ${statCards}
 
-<line x1="54" y1="396" x2="846" y2="396" stroke="${T.border}" stroke-width="2"/>
-${sectionLabel(54, 428, "// CONTRIBUTION TERRAIN")}
-<text x="846" y="428" text-anchor="end" font-family='${FF_MONO}' font-size="11"
-      fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>
+${marchingLine(54, DIVIDER_Y, 846, DIVIDER_Y, { color: T.border, width: 2, dash: "10 8", dur: 2.6 })}
+${breathe(sectionLabel(54, 404, "// PETA KONTRIBUSI"), { dur: 5, delay: 0.8 })}
+${breathe(
+    `<text x="846" y="404" text-anchor="end" font-family='${FF_MONO}' font-size="11"
+      fill="${T.textSoft}" letter-spacing="0.5">365 HARI · ${contrib.total} TOTAL</text>`,
+    { dur: 6, from: 0.65, to: 1, delay: 2 }
+  )}
 
 <g>${terrain()}</g>
 ${snake()}
 
-<text x="54" y="671" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">LESS</text>
+${breathe(
+    `<text x="54" y="${LEGEND_Y + 9}" font-family='${FF_MONO}' font-size="10" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.4">SEDIKIT</text>`,
+    { dur: 4, from: 0.6, to: 1 }
+  )}
 ${legend}
-<text x="846" y="671" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>`;
+${breathe(
+    `<text x="846" y="${LEGEND_Y + 9}" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.4">BANYAK</text>`,
+    { dur: 4, from: 0.6, to: 1, delay: 2 }
+  )}`;
 
-  return { h: 700, body };
+  return { h: 600, body };
 }
 
 /* ───────────────────────── SEKSI: STACK ───────────────────────── */
@@ -325,6 +387,7 @@ function stackSection() {
   let x = 54;
   let y = 108;
   let out = "";
+  let i = 0;
 
   for (const name of TECH) {
     const w = Math.round(name.length * 7.4 + PAD * 2);
@@ -333,20 +396,26 @@ function stackSection() {
       y += H + GAP;
     }
     // chip: border 2px + hard shadow kecil (2px 2px 0)
-    out += `<g>
+    // Tiap chip melayang dengan fase sendiri, jadi barisannya seperti riak.
+    const chip = `<g>
       <rect x="${x + 2}" y="${y + 2}" width="${w}" height="${H}" rx="4" fill="${T.shadowHard}"/>
       <rect x="${x}" y="${y}" width="${w}" height="${H}" rx="4" fill="${T.panel}"
             stroke="${T.border}" stroke-width="2"/>
       <text x="${x + PAD}" y="${y + H / 2 + 4.6}" font-family='${FF_MONO}' font-size="12" font-weight="700"
             fill="${T.textSoft}" letter-spacing="0.4">${esc(name)}</text>
     </g>`;
+    out += bob(chip, { dur: 5.5 + (i % 4) * 0.7, amp: 2.4, delay: (i % 7) * 0.45 });
     x += w + GAP;
+    i++;
   }
 
   const body = `
-${sectionLabel(54, 52, "// ACTIVE SIGNALS")}
-<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
-      fill="${T.text}" letter-spacing="-1">Tools I actually use</text>
+${breathe(sectionLabel(54, 52, "// SINYAL AKTIF"), { dur: 4.6, delay: 0.4 })}
+${sway(
+    `<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
+      fill="${T.text}" letter-spacing="-1">Yang kupakai sehari-hari</text>`,
+    { dur: 12, amp: 2 }
+  )}
 ${out}`;
 
   return { h: y + H + 28, body };
@@ -363,22 +432,28 @@ function linksSection() {
 
   let x = 54;
   let out = "";
+  let i = 0;
   for (const it of items) {
     const w = Math.round(it.label.length * 7.2 + 44);
-    out += `<a href="${it.href}" target="_blank">
+    const btn = `<a href="${it.href}" target="_blank">
     <rect x="${x + 3}" y="33" width="${w}" height="38" rx="4" fill="${T.shadowHard}"/>
     <rect x="${x}" y="30" width="${w}" height="38" rx="4" fill="${T.panel}"
           stroke="${T.borderBright}" stroke-width="2"/>
     <text x="${x + 22}" y="54.4" font-family='${FF_MONO}' font-size="12" font-weight="700"
           fill="${T.textSoft}" letter-spacing="0.3">${esc(it.label)}</text>
   </a>`;
+    out += bob(btn, { dur: 6 + i * 0.9, amp: 2.6, delay: i * 0.7 });
     x += w + 14;
+    i++;
   }
 
   const body = `
 ${out}
-<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>`;
+${breathe(
+    `<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
+      fill="${T.textSoft}" letter-spacing="1.6">DIBANGUN · DIPERBAIKI · DIPAKAI</text>`,
+    { dur: 5.5, from: 0.5, to: 1, delay: 1.5 }
+  )}`;
 
   return { h: 104, body };
 }
@@ -394,8 +469,13 @@ let inner = "";
 for (const s of SECTIONS) {
   // pemisah tipis antar seksi, kecuali sebelum seksi pertama
   if (y > 0) {
-    inner += `<line x1="54" y1="${y - SECTION_GAP / 2}" x2="846" y2="${y - SECTION_GAP / 2}"
-      stroke="${T.border}" stroke-width="1" opacity="0.35"/>\n`;
+    inner += marchingLine(54, y - SECTION_GAP / 2, 846, y - SECTION_GAP / 2, {
+      color: T.border,
+      width: 1,
+      dash: "8 8",
+      dur: 4,
+      opacity: 0.45,
+    }) + "\n";
   }
   inner += `<g transform="translate(0,${y})">${s.body}</g>\n`;
   y += s.h + SECTION_GAP;
@@ -422,8 +502,12 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${TOTAL
 </defs>
 
 <rect width="900" height="${TOTAL_H}" fill="${T.bg}"/>
-<rect width="900" height="${TOTAL_H}" fill="url(#dotField)"/>
-<ellipse cx="450" cy="540" rx="440" ry="170" fill="url(#glowGreen)"/>
+<rect width="900" height="${TOTAL_H}" fill="url(#dotField)">
+  <animate attributeName="opacity" values="1;0.72;1" dur="7s" repeatCount="indefinite"/>
+</rect>
+<ellipse cx="450" cy="470" rx="440" ry="170" fill="url(#glowGreen)">
+  <animate attributeName="opacity" values="0.65;1;0.65" dur="8s" repeatCount="indefinite"/>
+</ellipse>
 
 ${inner}
 </svg>
