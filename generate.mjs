@@ -184,7 +184,7 @@ function terrain() {
 
 /* ───────────────────── JALUR ULAR ───────────────────── */
 
-const ROUTE_DUR = 28;
+const ROUTE_DUR = 112;
 const IMPACTS = [];
 
 function impact(inner, x, y) {
@@ -213,6 +213,7 @@ function buildPath(width, height) {
       points.push([cx + x, cy + y]);
     }
   }
+  points.reverse();
 
   let length = 0;
   const distances = [0];
@@ -308,8 +309,9 @@ function snake(route) {
       : "";
 
     const lag = (i * PITCH / route.length * ROUTE_DUR).toFixed(3);
-    out += `<g data-role="snake-segment" opacity="${(1 - tt * 0.25).toFixed(2)}">
-      <animateMotion dur="${ROUTE_DUR}s" begin="-${lag}s" rotate="auto" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+    const begin = (-ROUTE_DUR + Number(lag)).toFixed(3);
+    out += `<g data-role="snake-segment" data-segment-index="${i}" opacity="${(1 - tt * 0.25).toFixed(2)}">
+      <animateMotion dur="${ROUTE_DUR}s" begin="${begin}s" rotate="auto" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
       ${sh.front}${sh.side}${sh.top}${front}${side}${top}${eyes}
     </g>`;
   }

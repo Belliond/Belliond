@@ -49,7 +49,10 @@ if (!size || size[3] !== `0 0 ${size[1]} ${size[2]}`) fail("SVG dimensions/viewB
 const height = Number(size[2]);
 const segments = [...svg.matchAll(/data-role="snake-segment"/g)];
 if (segments.length !== 26) fail(`Expected 26 animated snake segments; found ${segments.length}.`);
-if (!svg.includes('<path id="snake-route"') || !/<animateMotion\b[^>]*dur="28s"/.test(svg)) fail("Snake route or variable-motion animation is missing.");
+if (!svg.includes('<path id="snake-route"') || !/<animateMotion\b[^>]*dur="112s"/.test(svg)) fail("Snake route or variable-motion animation is missing.");
+const head = svg.match(/data-segment-index="0"[^>]*>[\s\S]*?<animateMotion\b[^>]*begin="([^"]+)"/);
+const tail = svg.match(/data-segment-index="25"[^>]*>[\s\S]*?<animateMotion\b[^>]*begin="([^"]+)"/);
+if (!head || !tail || Number(head[1].replace("s", "")) !== -112 || Number(tail[1].replace("s", "")) <= -112) fail("Snake tail must trail behind the head along the route.");
 const route = svg.match(/<path id="snake-route" d="([^"]+)"/);
 const routePoints = [...(route?.[1] || "").matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]);
 if (routePoints.length < 500) fail("Snake route is missing its varied interior path.");
