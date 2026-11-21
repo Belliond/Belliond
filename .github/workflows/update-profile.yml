@@ -24,11 +24,12 @@ jobs:
         run: node fetch-contrib.mjs
       - name: Regenerate profile SVG
         run: node generate.mjs
+      - name: Refresh README cache key
+        run: node scripts/update-cache-key.mjs
       - name: Validate snapshot and SVG
         run: node validate.mjs --check-fresh
       - name: Commit changed profile files
         run: |
-          node -e 'const fs=require("node:fs"),crypto=require("node:crypto"),p="README.md",r=fs.readFileSync(p,"utf8"),v=crypto.createHash("sha256").update(fs.readFileSync("assets/profile.svg")).digest("hex").slice(0,12),n=r.replace(/assets\/profile\.svg\?v=[^\s"]+/,"assets/profile.svg?v="+v); if(n===r&&!r.includes("assets/profile.svg?v="+v)) throw Error("README image URL missing"); fs.writeFileSync(p,n)'
           if git diff --quiet -- contrib.json assets/profile.svg README.md; then
             echo "Profile is already up to date."
             exit 0

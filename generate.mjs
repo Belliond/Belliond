@@ -1,40 +1,39 @@
-// generate.mjs — README profil, tema Ghost Task Matrix (neobrutalism)
-// Palet, font, border, dan hard-shadow diambil persis dari
-// https://belliond.github.io/task-vault/style.css (:root)
+// generate.mjs — README profil, kartu "developer profile" bergaya terminal.
 //
-// Output: satu SVG utuh (assets/profile.svg) — bukan tiga file terpisah.
-// Alasannya: SVG ini full-bleed gelap, dan GitHub selalu memberi margin
-// antar <img> di README. Kalau dipecah, celah antar gambar jadi pita putih
-// yang merusak tampilan satu halaman. Satu kanvas = mulus seperti situsnya.
+// Output: satu SVG utuh (assets/profile.svg). GitHub menampilkan SVG lewat
+// <img>, jadi tidak ada JS/CSS halaman: semua gerak memakai SMIL.
+//
+// Anggaran performa (penting — SVG ini dibuka di HP):
+//   • nol filter (feTurbulence sangat mahal dan dihitung ulang tiap frame)
+//   • hanya ular + lensa + dua kedip kecil yang beranimasi
+//   • efek tabrakan = lensa pembesar yang bergerak di atas salinan konten,
+//     bukan menghapus elemen. Kartu tetap utuh, hanya bagian yang dilewati
+//     ular yang terlihat terdistorsi.
 
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
 
 const contrib = JSON.parse(readFileSync("contrib.json", "utf8"));
 
 /* ─────────────────────── TOKEN DESAIN ─────────────────────── */
-// Disalin dari :root milik task-vault, tanpa perubahan nilai.
 
 const T = {
   bg: "#050a08",
-  panel: "rgba(14,26,21,0.84)",
+  panel: "#0b1411",
+  bar: "#08120e",
 
   green: "#4dffb2",
   greenDark: "#19d991",
+  greenDeep: "#0f7a55",
   cyan: "#4fe6ff",
 
   text: "#eafef4",
   textSoft: "#9ac9bb",
+  textDim: "#5f8d7e",
 
-  border: "#19d991",
-  borderBright: "#7dffc9",
   borderW: 3,
-
-  shadowHard: "#0f7a55",
-  radius: 6,
 };
 
-// Font: disematkan base64 supaya SVG tetap benar walau dirender lewat <img>
-// (cara GitHub menampilkan SVG di README — tanpa akses ke CSS halaman).
+// Font disematkan base64: SVG tetap benar walau dirender lewat <img>.
 const FONT_GROTESK = readFileSync("_fonts/grotesk.woff2").toString("base64");
 const FONT_MONO400 = readFileSync("_fonts/mono400.woff2").toString("base64");
 const FONT_MONO700 = readFileSync("_fonts/mono700.woff2").toString("base64");
@@ -51,25 +50,23 @@ const FONT_DEFS = `<style>
     @font-face{font-family:"Space Mono";src:url(data:font/woff2;base64,${FONT_MONO700}) format("woff2");font-weight:700;font-display:block;}
   </style>`;
 
-/* ─────────────────── GEOMETRI GRID KONTRIBUSI ─────────────────── */
+/* ─────────────────────── GEOMETRI ─────────────────────── */
 
-const PITCH = 15;
-const CELL = 11;
-const COLS = contrib.cols;
-const ROWS = 7;
-const GRID_W = COLS * PITCH - (PITCH - CELL);
-const GRID_X = Math.round((900 - GRID_W) / 2);
-// Grid 2D datar: 7 baris x PITCH = 105px, dikurangi sisa (PITCH - CELL).
-const GRID_H = ROWS * PITCH - (PITCH - CELL);
-const GRID_Y = 440;
+const W = 900;
+const H = 660;
 
-// Titik-titik tetap di seksi hero, ditulis sebagai konstanta supaya label dan
-// legenda tidak meleset kalau grid digeser.
-const DIVIDER_Y = 366;
-const LEGEND_Y = 562;
+const WIN = { x: 90, y: 140, w: 760, h: 470 }; // jendela utama
+const TITLE_H = 34;
+const FOOT_H = 40;
+const PANEL_X = 290; // batas panel kiri/kanan
+const PAD_X = 310; // awal teks panel kanan
+const RIGHT = WIN.x + WIN.w - 20; // 830
 
-const cellX = (c) => GRID_X + c * PITCH;
-const cellY = (r) => GRID_Y + r * PITCH;
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const lastDate = new Date(
+  `${contrib.cells.map((c) => c.date).sort().at(-1)}T00:00:00Z`,
+);
+const LAST_COMMIT = `${String(lastDate.getUTCDate()).padStart(2, "0")} ${MONTHS[lastDate.getUTCMonth()]} ${lastDate.getUTCFullYear()}`;
 
 /* ───────────── KOTAK 3D neobrutalism: tepi tegas ───────────── */
 
@@ -85,113 +82,20 @@ function box(x, y, w, h, k, cTop, cFront, cSide, stroke) {
 
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  const f = (v) =>
-    Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
-  return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, "0")}`;
+  const ch = (v) => Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
+  return `#${((ch((n >> 16) & 255) << 16) | (ch((n >> 8) & 255) << 8) | ch(n & 255)).toString(16).padStart(6, "0")}`;
 }
 
 function mix(a, b, t) {
   const pa = parseInt(a.slice(1), 16);
   const pb = parseInt(b.slice(1), 16);
-  const r = Math.round(((pa >> 16) & 255) * (1 - t) + ((pb >> 16) & 255) * t);
-  const g = Math.round(((pa >> 8) & 255) * (1 - t) + ((pb >> 8) & 255) * t);
-  const bl = Math.round((pa & 255) * (1 - t) + (pb & 255) * t);
-  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0")}`;
+  const ch = (sa, sb) => Math.round(sa * (1 - t) + sb * t);
+  return `#${((ch((pa >> 16) & 255, (pb >> 16) & 255) << 16) | (ch((pa >> 8) & 255, (pb >> 8) & 255) << 8) | ch(pa & 255, pb & 255)).toString(16).padStart(6, "0")}`;
 }
 
-/* Skala level: hijau redup → hijau terang (sesuai aksen situs) */
-const LEVELS = ["#0e1a15", "#1a4d3a", "#19d991", "#4dffb2", "#a6ffdb"];
+/* ─────────────────────── JALUR ULAR ─────────────────────── */
 
-/* ───────────────────── MESIN GERAK (SMIL) ───────────────────── */
-// Semua elemen digerakkan lewat <animateTransform> / <animate> supaya SVG ini
-// tetap "hidup" walau dirender sebagai <img> (tanpa JS, tanpa CSS halaman).
-//
-// Nilai gerak dibuat dari banyak sampel sinus, bukan keySplines: spline di
-// SVG-yang-dirender-sebagai-<img> dukungannya beda-beda antar browser, sedang
-// polyline padat hasilnya sama halusnya dan aman di mana saja.
-//
-// begin negatif = animasi dianggap sudah jalan sejak sekian detik lalu. Itu
-// trik supaya tiap elemen punya fase berbeda tanpa ada yang "menunggu" dulu.
-
-const SINE_SAMPLES = 20;
-
-function sineValues(amp, axis = "y") {
-  const out = [];
-  for (let i = 0; i <= SINE_SAMPLES; i++) {
-    const a = (i / SINE_SAMPLES) * Math.PI * 2;
-    const v = (Math.sin(a) * amp).toFixed(2);
-    out.push(axis === "y" ? `0,${v}` : `${v},0`);
-  }
-  return out.join(";");
-}
-
-// Melayang naik-turun pelan.
-function bob(inner, { dur = 8, amp = 1.6, delay = 0 } = {}) {
-  return `<g>${inner}<animateTransform attributeName="transform" type="translate"
-      values="${sineValues(amp, "y")}" dur="${dur}s" begin="${-delay}s"
-      repeatCount="indefinite"/></g>`;
-}
-
-// Bergoyang kiri-kanan pelan.
-function sway(inner, { dur = 9, amp = 2, delay = 0 } = {}) {
-  return `<g>${inner}<animateTransform attributeName="transform" type="translate"
-      values="${sineValues(amp, "x")}" dur="${dur}s" begin="${-delay}s"
-      repeatCount="indefinite"/></g>`;
-}
-
-// Napas: opasitas naik-turun, untuk label dan teks yang tidak boleh goyang
-// posisinya (biar tetap enak dibaca).
-function breathe(inner, { dur = 5, from = 0.55, to = 1, delay = 0 } = {}) {
-  return `<g opacity="${from}">${inner}<animate attributeName="opacity"
-      values="${from};${to};${from}" dur="${dur}s" begin="${-delay}s"
-      repeatCount="indefinite"/></g>`;
-}
-
-// Garis putus-putus yang berjalan.
-function marchingLine(x1, y1, x2, y2, { color, width = 2, dash = "6 6", dur = 3, opacity = 1 } = {}) {
-  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
-      stroke="${color}" stroke-width="${width}" stroke-dasharray="${dash}"
-      opacity="${opacity}"><animate attributeName="stroke-dashoffset"
-      values="0;-24" dur="${dur}s" repeatCount="indefinite"/></line>`;
-}
-
-// Grid kontribusi versi 2D datar: tidak ada pilar/top/side sama sekali.
-// Commit intensity is encoded by cell color; each column reacts to the snake.
-function terrain() {
-  const cols = [];
-
-  for (let c = 0; c < COLS; c++) {
-    let cells = "";
-    for (let r = 0; r < ROWS; r++) {
-      const x = cellX(c);
-      const y = cellY(r);
-      const lvl = contrib.matrix[r][c];
-      cells +=
-        lvl === 0
-          ? `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2"
-              fill="#0b1411" stroke="#123026" stroke-width="1"/>`
-          : `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2"
-              fill="${LEVELS[lvl]}" stroke="#0b1411" stroke-width="1"/>`;
-    }
-    cols.push(impact(bob(cells, { dur: 9, amp: 1.6, delay: c * 0.14 }), cellX(c) + CELL / 2, GRID_Y + GRID_H / 2));
-  }
-
-  return cols.join("");
-}
-
-/* ───────────────────── JALUR ULAR ───────────────────── */
-
-const ROUTE_DUR = 112;
-const IMPACTS = [];
-
-function impact(inner, x, y) {
-  const id = IMPACTS.length;
-  IMPACTS.push({ inner, x, y });
-  return `@@IMPACT_${id}@@`;
-}
+const ROUTE_DUR = 112; // detik per putaran — pelan, tidak menyilaukan
 
 function buildPath(width, height) {
   const left = 18, right = width - 18, top = 24, bottom = height - 24;
@@ -208,382 +112,325 @@ function buildPath(width, height) {
   ];
   const points = [];
   for (const wave of waves) {
-    for (let i = 0; i <= 96; i++) {
-      const [x, y] = wave((i / 96) * Math.PI * 2);
+    // 32 sampel per gelombang: cukup halus untuk 900px, jauh lebih ringan
+    // dihitung/dirender di HP daripada 96.
+    for (let i = 0; i <= 32; i++) {
+      const [x, y] = wave((i / 32) * Math.PI * 2);
       points.push([cx + x, cy + y]);
     }
   }
+  // Dibalik supaya kepala memimpin di awal rute.
   points.reverse();
-
-  let length = 0;
-  const distances = [0];
-  for (let i = 1; i < points.length; i++) {
-    length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
-    distances.push(length);
-  }
   const d = `M${points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L")}`;
 
-  function phaseAt(x, y) {
-    let bestDistance = Infinity, bestPosition = 0;
-    for (let i = 1; i < points.length; i++) {
-      const [x1, y1] = points[i - 1], [x2, y2] = points[i];
-      const dx = x2 - x1, dy = y2 - y1;
-      const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy || 1)));
-      const px = x1 + t * dx, py = y1 + t * dy;
-      const distance = Math.hypot(x - px, y - py);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestPosition = distances[i - 1] + t * (distances[i] - distances[i - 1]);
-      }
-    }
-    return { phase: (bestPosition / length) * ROUTE_DUR, distance: bestDistance };
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
   }
-
-  return { points, d, length, phaseAt };
+  return { points, d, length };
 }
 
-function applyImpacts(inner, route) {
-  const filters = [];
-  let impacted = 0;
-  for (let i = 0; i < IMPACTS.length; i++) {
-    const { inner: content, x, y } = IMPACTS[i];
-    const hit = route.phaseAt(x, y);
-    if (hit.distance > 58) {
-      inner = inner.replace(`@@IMPACT_${i}@@`, content);
-      continue;
-    }
-    const id = `impact-${i}`;
-    const phase = hit.phase.toFixed(2);
-    impacted++;
-    filters.push(`<filter id="${id}" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.035 0.012" numOctaves="2" seed="${(i % 17) + 1}" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="G">
-        <animate attributeName="scale" values="0;16;32;10;0;0" keyTimes="0;0.015;0.04;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/>
-      </feDisplacementMap>
-    </filter>`);
-    const wrapped = `<g data-role="impact-target" data-impact-phase="${phase}" filter="url(#${id})" opacity="1">
-      <animate attributeName="opacity" values="1;0.28;0.04;0.3;1;1" keyTimes="0;0.02;0.05;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/>
-      <g>${content}<animateTransform attributeName="transform" type="translate" values="0,0;6,-2;-5,3;3,0;0,0;0,0" keyTimes="0;0.015;0.04;0.07;0.09;1" dur="${ROUTE_DUR}s" begin="${phase}s" repeatCount="indefinite"/></g>
-    </g>`;
-    inner = inner.replace(`@@IMPACT_${i}@@`, wrapped);
-  }
-  return { inner, filters: filters.join("\n"), impacted };
+// Jalur "delta" untuk lensa: titik (I - A)·p dengan A = skala·rotasi.
+// Dipakai sebagai animateMotion, sehingga salinan konten di dalam lensa
+// terlihat diperbesar/diputar tepat di sekitar posisi ular (titik p tetap
+// di p). Karena A hanya skala seragam + rotasi, panjang busur jalur delta
+// sebanding dengan jalur asli → kedua gerak tetap sinkron sepanjang loop.
+const LENS_SCALE = 1.6;
+const LENS_ROT = 4;
+const LENS_R = 64;
+
+function deltaPath(points) {
+  const a = (LENS_ROT * Math.PI) / 180;
+  const cos = Math.cos(a) * LENS_SCALE;
+  const sin = Math.sin(a) * LENS_SCALE;
+  const pts = points.map(([x, y]) => {
+    const ax = cos * x - sin * y;
+    const ay = sin * x + cos * y;
+    return [x - ax, y - ay];
+  });
+  return `M${pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L")}`;
 }
 
-// Badan ular = deretan kubus 3D yang saling menimpa, bukan satu garis tebal.
-// Tiap segmen tertinggal 1 waypoint dari segmen di depannya; karena jarak
-// antar waypoint = PITCH (15px) dan lebar segmen 15px, kubusnya bersambung.
-const SEGMENTS = 26;
+// Badan ular = deretan kubus 3D yang saling menimpa. 12 segmen cukup untuk
+// siluet yang utuh dan jauh lebih ringan saat dihitung ulang tiap frame.
+const SEGMENTS = 12;
+const PITCH = 15;
 
 function snake(route) {
   let out = "";
-
-  // Gambar dari ekor ke kepala supaya kepala selalu di atas
   for (let i = SEGMENTS - 1; i >= 0; i--) {
     const isHead = i === 0;
-    const tt = i / (SEGMENTS - 1); // 0 = kepala, 1 = ekor
+    const tt = i / (SEGMENTS - 1);
 
     const col =
       tt < 0.55
-        ? mix(T.borderBright, T.green, tt / 0.55)
-        : mix(T.green, T.cyan, (tt - 0.55) / 0.45);
+        ? mix(T.green, T.greenDark, tt / 0.55)
+        : mix(T.greenDark, T.cyan, (tt - 0.55) / 0.45);
 
     const s = isHead ? 15 : 15 - tt * 7;
     const k = isHead ? 7 : 4 + (1 - tt) * 2;
     const half = s / 2;
 
-    const { front, top, side } = box(
-      -half, -half, s, s, k,
-      shade(col, 0.3), col, shade(col, -0.45), "#050a08"
-    );
-
-    // Hard shadow: salinan yang digeser 3px, warna --shadow-hard-color
-    const sh = box(
-      -half + 3, -half + 3, s, s, k,
-      T.shadowHard, T.shadowHard, T.shadowHard
-    );
-
+    const { front, top, side } = box(-half, -half, s, s, k, shade(col, 0.3), col, shade(col, -0.45), "#050a08");
+    const sh = box(-half + 3, -half + 3, s, s, k, T.greenDeep, T.greenDeep, T.greenDeep);
     const eyes = isHead
       ? `<circle cx="${-half + s * 0.3}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>
          <circle cx="${-half + s * 0.7}" cy="${-half + s * 0.3}" r="2.2" fill="#050a08"/>`
       : "";
 
     const lag = (i * PITCH / route.length * ROUTE_DUR).toFixed(3);
-    const begin = (-ROUTE_DUR + Number(lag)).toFixed(3);
     out += `<g data-role="snake-segment" data-segment-index="${i}" opacity="${(1 - tt * 0.25).toFixed(2)}">
-      <animateMotion dur="${ROUTE_DUR}s" begin="${begin}s" rotate="auto" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+      <animateMotion dur="${ROUTE_DUR}s" begin="${(-ROUTE_DUR + Number(lag)).toFixed(3)}s" rotate="auto" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
       ${sh.front}${sh.side}${sh.top}${front}${side}${top}${eyes}
     </g>`;
   }
-
   return out;
 }
 
-/* ───────────────────── KOMPONEN NEOBRUTAL ───────────────────── */
+/* ─────────────────────── KOMPONEN ─────────────────────── */
 
-// Kartu: border 3px + hard shadow 4px 4px 0
-function card(x, y, w, h, fill) {
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${T.radius}"
-      fill="${fill || T.panel}" stroke="${T.border}" stroke-width="${T.borderW}"/>
-    <rect x="${x + 4}" y="${y + 4}" width="${w}" height="${h}" rx="${T.radius}"
-      fill="none" stroke="${T.shadowHard}" stroke-width="${T.borderW}"/>`;
+function chip(x, y, w, h, label, { fill = T.green, color = T.bg, size = 9, weight = 700, stroke } = {}) {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"${stroke ? ` stroke="${stroke}" stroke-width="2"` : ""}/>
+    <text x="${x + w / 2}" y="${y + h / 2 + size * 0.36}" text-anchor="middle" font-family='${FF_MONO}'
+      font-size="${size}" font-weight="${weight}" fill="${color}" letter-spacing="0.8">${esc(label)}</text>`;
 }
 
-// .section-label tidak set font-family → inherit Space Grotesk dari body.
-// text-shadow: 2px 2px 0 var(--green-dark) → salinan teks digeser 2px.
-function sectionLabel(x, y, text, fill) {
-  return `<text x="${x + 2}" y="${y + 2}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
-      fill="${T.greenDark}" letter-spacing="3">${esc(text)}</text>
-    <text x="${x}" y="${y}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
-      fill="${fill || T.green}" letter-spacing="3">${esc(text)}</text>`;
+function label(x, y, text, { fill = T.green, size = 9, ls = 2.6, weight = 700, anchor = "start" } = {}) {
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family='${FF_MONO}' font-size="${size}"
+    font-weight="${weight}" fill="${fill}" letter-spacing="${ls}">${esc(text)}</text>`;
 }
 
-/* ───────────────────────── SEKSI: HERO ───────────────────────── */
+/* ─────────────────────── POTONGAN KARTU ─────────────────────── */
 
-function heroSection() {
+function tape() {
+  return `<g transform="rotate(-4 16 40)">
+    <rect x="6" y="22" width="252" height="34" fill="${T.green}" stroke="${T.bg}" stroke-width="2"/>
+    <text x="22" y="44" font-family='${FF_MONO}' font-size="12" font-weight="700" fill="${T.bg}" letter-spacing="2.2">ROOT ACCESS GRANTED</text>
+  </g>`;
+}
+
+function header() {
+  return `
+  ${label(150, 62, "GITHUB IDENTITY / 001", { size: 10, ls: 3 })}
+  <text x="153" y="107" font-family='${FF_HEAD}' font-size="40" font-weight="700" fill="${T.greenDeep}" letter-spacing="-1">DEVELOPER PROFILE</text>
+  <text x="150" y="104" font-family='${FF_HEAD}' font-size="40" font-weight="700" fill="${T.text}" letter-spacing="-1">DEVELOPER PROFILE</text>
+  <rect x="716" y="80" width="134" height="26" fill="${T.bar}" stroke="${T.greenDark}" stroke-width="2"/>
+  <rect x="728" y="90" width="7" height="7" fill="${T.green}">
+    <animate attributeName="opacity" values="1;0.2;1" dur="1.8s" repeatCount="indefinite"/>
+  </rect>
+  ${label(744, 98, "SYSTEM ONLINE", { size: 9, ls: 1.6 })}`;
+}
+
+function titleBar() {
+  const y = WIN.y;
+  return `
+  <rect x="${WIN.x}" y="${y}" width="${WIN.w}" height="${TITLE_H}" fill="${T.bar}"/>
+  <rect x="${WIN.x + 14}" y="${y + 12}" width="9" height="9" fill="${T.green}"/>
+  <rect x="${WIN.x + 28}" y="${y + 12}" width="9" height="9" fill="${T.greenDark}"/>
+  <rect x="${WIN.x + 42}" y="${y + 12}" width="9" height="9" fill="${T.greenDeep}"/>
+  ${label(WIN.x + WIN.w - 16, y + 21, "PROFILE.EXE", { size: 9, ls: 1.8, anchor: "end" })}`;
+}
+
+function leftPanel() {
+  const px = WIN.x, pw = 200, py = WIN.y + TITLE_H;
+  const ph = WIN.h - TITLE_H - FOOT_H;
+  const fx = px + 18, fw = pw - 36, fy = py + 18, fh = 188;
+
+  // Garis-garis pemindai di dalam bingkai foto.
+  let scan = "";
+  for (let y = fy + 6; y < fy + fh; y += 7) {
+    scan += `<line x1="${fx}" y1="${y}" x2="${fx + fw}" y2="${y}" stroke="${T.green}" stroke-width="1" opacity="0.10"/>`;
+  }
+
+  return `
+  <rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="${T.green}"/>
+  <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" fill="${T.bar}" stroke="${T.greenDark}" stroke-width="2"/>
+  <g transform="rotate(8 ${fx + fw - 8} ${fy + 4})">
+    <rect x="${fx + fw - 22}" y="${fy - 10}" width="28" height="28" fill="${T.green}" stroke="${T.bg}" stroke-width="2"/>
+    ${label(fx + fw - 8, fy + 8, "ID", { size: 9, ls: 0, anchor: "middle", fill: T.bg })}
+  </g>
+  ${scan}
+  <text x="${px + pw / 2}" y="${fy + 108}" text-anchor="middle" font-family='${FF_HEAD}' font-size="58" font-weight="700" fill="${T.green}" letter-spacing="2">KD</text>
+  <line x1="${px + pw / 2 - 42}" y1="${fy + 130}" x2="${px + pw / 2 + 42}" y2="${fy + 130}" stroke="${T.green}" stroke-width="1.5"/>
+  ${label(px + pw / 2, fy + 148, "WHITE HAT", { size: 9, ls: 4, anchor: "middle" })}
+
+  <rect x="${fx}" y="${fy + fh + 22}" width="${fw}" height="28" fill="${T.bar}" stroke="${T.greenDark}" stroke-width="1.5"/>
+  ${label(fx + 10, fy + fh + 40, "THREAT LEVEL", { size: 8, ls: 1.4, fill: T.textSoft })}
+  ${chip(fx + fw - 46, fy + fh + 27, 38, 18, "LOW", { size: 8 })}
+
+  ${label(fx, fy + fh + 82, "> SESSION ACTIVE", { size: 8.5, ls: 1.2, fill: "#0a3a28" })}
+  ${label(fx, fy + fh + 100, "> UPTIME 99.98%", { size: 8.5, ls: 1.2, fill: "#0a3a28" })}`;
+}
+
+function rightPanel() {
+  const py = WIN.y + TITLE_H;
+  const ph = WIN.h - TITLE_H - FOOT_H;
   const stats = [
     { n: contrib.total, l: "CONTRIBUTIONS" },
     { n: contrib.active, l: "ACTIVE DAYS" },
     { n: contrib.best, l: "BEST STREAK" },
   ];
 
-  const cardW = 249;
-  const cardH = 128;
-  const gap = 22;
-  const startX = 54;
-  const cardY = 200;
-
-  const statCards = stats
+  const statBoxes = stats
     .map((s, i) => {
-      const x = startX + i * (cardW + gap);
-      const idx = String(i + 1).padStart(2, "0");
-      // Angka besar ikut berdenyut pelan (skala 1 -> 1.03), labelnya tetap.
-      const body = `
-      ${card(x, cardY, cardW, cardH)}
-      <text x="${x + 24}" y="${cardY + 34}" font-family='${FF_HEAD}' font-size="12" font-weight="700"
-            fill="${T.textSoft}" letter-spacing="3">${s.l}</text>
-      <text x="${x + cardW - 24}" y="${cardY + 34}" text-anchor="end" font-family='${FF_MONO}' font-size="11"
-            font-weight="700" fill="${T.greenDark}" letter-spacing="1">${idx}</text>
-      ${breathe(
-        `<text x="${x + 24}" y="${cardY + 96}" font-family='${FF_HEAD}' font-size="50" font-weight="700"
-            fill="${T.text}" letter-spacing="-1">${s.n}</text>`,
-        { dur: 4.5, from: 0.72, to: 1, delay: i * 1.1 }
-      )}`;
-      return impact(bob(body, { dur: 7 + i * 0.8, amp: 2.2, delay: i * 1.3 }), x + cardW / 2, cardY + cardH / 2);
+      const x = PAD_X + i * 172;
+      return `<rect x="${x}" y="322" width="160" height="74" fill="none" stroke="${T.greenDeep}" stroke-width="2"/>
+        <text x="${x + 14}" y="362" font-family='${FF_HEAD}' font-size="30" font-weight="700" fill="${T.text}">${s.n}</text>
+        ${label(x + 14, 382, s.l, { size: 8, ls: 1.4, fill: T.textSoft })}`;
     })
-    .join("\n    ");
+    .join("\n");
 
-  // Rata kanan: swatch 5 x 11px pitch 15 = 71px, berakhir di ~783 supaya
-  // tidak bertabrakan dengan "BANYAK" yang rata kanan di 846.
-  const legend = LEVELS.map((c, i) => {
-    const x = 712 + i * 15;
-    return impact(bob(
-      `<rect x="${x}" y="${LEGEND_Y}" width="11" height="11" rx="2" fill="${c}"
-        stroke="#0b1411" stroke-width="1"/>`,
-      { dur: 3.4, amp: 2.4, delay: i * 0.28 }
-    ), x + 5, LEGEND_Y + 5);
-  }).join("");
+  // Bar kontribusi: 26 minggu terakhir, tinggi dari jumlah commit per minggu.
+  const weekly = Array.from({ length: contrib.cols }, (_, c) =>
+    contrib.counts.reduce((sum, row) => sum + row[c], 0),
+  );
+  const shown = weekly.slice(-26);
+  const peak = Math.max(...shown, 1);
+  const bars = shown
+    .map((v, i) => {
+      const h = v === 0 ? 6 : Math.round(8 + Math.sqrt(v / peak) * 40);
+      const x = PAD_X + i * 15;
+      const fill = v === 0 ? "#123026" : i === shown.length - 1 ? T.green : mix(T.greenDeep, T.green, v / peak);
+      return `<rect x="${x}" y="${486 - h}" width="9" height="${h}" fill="${fill}"/>`;
+    })
+    .join("");
 
-  const body = `
-${impact(breathe(sectionLabel(54, 60, "// MISSION CONTROL"), { dur: 4.2 }), 260, 60)}
+  const tags = ["#TYPESCRIPT", "#NEXTJS", "#SUPABASE"];
+  const tagChips = tags
+    .map((t, i) => {
+      const w = Math.round(t.length * 5.4 + 16);
+      return chip(RIGHT - w, 430 + i * 21, w, 17, t, { fill: "none", color: T.green, size: 8, stroke: T.greenDeep });
+    })
+    .join("");
 
-${impact(sway(
-    `<text x="54" y="122" font-family='${FF_HEAD}' font-size="52" font-weight="700"
-      fill="${T.text}" letter-spacing="-1">Krisna D. Cristian</text>`,
-    { dur: 11, amp: 2.5 }
-  ), 330, 122)}
+  return `
+  <rect x="${PANEL_X}" y="${py}" width="${WIN.x + WIN.w - PANEL_X}" height="${ph}" fill="${T.panel}"/>
+  <line x1="${PANEL_X}" y1="${py}" x2="${PANEL_X}" y2="${py + ph}" stroke="${T.greenDeep}" stroke-width="2"/>
 
-${impact(breathe(
-    `<text x="54" y="158" font-family='${FF_HEAD}' font-size="17"
-      fill="${T.textSoft}">Computer Science · Sumatra Institute of Technology · Lampung</text>`,
-    { dur: 6.5, from: 0.6, to: 1, delay: 1.2 }
-  ), 420, 158)}
+  <text x="${PAD_X}" y="220" font-family='${FF_HEAD}' font-size="26" font-weight="700" fill="${T.text}" letter-spacing="-0.4">KRISNA D. CRISTIAN</text>
+  ${chip(612, 200, 68, 20, "VERIFIED", { size: 8 })}
+  ${chip(690, 198, 96, 24, "+ FOLLOW", { size: 9.5 })}
+  <rect x="796" y="198" width="26" height="24" fill="${T.bar}" stroke="${T.greenDark}" stroke-width="2"/>
+  ${label(809, 214, "GH", { size: 9, ls: 0, anchor: "middle" })}
 
-${statCards}
+  ${label(PAD_X, 248, "@belliond // click to copy", { size: 10, ls: 0.6 })}
+  <rect x="${PAD_X + 232}" y="240" width="8" height="11" fill="${T.green}">
+    <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.45;0.5;0.95;1" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
 
-${impact(marchingLine(54, DIVIDER_Y, 846, DIVIDER_Y, { color: T.border, width: 2, dash: "10 8", dur: 2.6 }), 450, DIVIDER_Y)}
-${impact(breathe(sectionLabel(54, 404, "// CONTRIBUTION TERRAIN"), { dur: 5, delay: 0.8 }), 310, 404)}
-${impact(breathe(
-    `<text x="846" y="404" text-anchor="end" font-family='${FF_MONO}' font-size="11"
-      fill="${T.textSoft}" letter-spacing="0.5">365 DAYS · ${contrib.total} TOTAL</text>`,
-    { dur: 6, from: 0.65, to: 1, delay: 2 }
-  ), 740, 404)}
+  <text x="${PAD_X}" y="284" font-family='${FF_HEAD}' font-size="15" fill="${T.textSoft}">Computer science student building open-source tools</text>
+  <text x="${PAD_X}" y="306" font-family='${FF_HEAD}' font-size="15" fill="${T.textSoft}">for the web — one commit at a time.</text>
 
-<g>${terrain()}</g>
+  ${statBoxes}
 
-${impact(breathe(
-    `<text x="54" y="${LEGEND_Y + 9}" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">LESS</text>`,
-    { dur: 4, from: 0.6, to: 1 }
-  ), 70, LEGEND_Y + 9)}
-${legend}
-${impact(breathe(
-    `<text x="846" y="${LEGEND_Y + 9}" text-anchor="end" font-family='${FF_MONO}' font-size="10" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.4">MORE</text>`,
-    { dur: 4, from: 0.6, to: 1, delay: 2 }
-  ), 805, LEGEND_Y + 9)}`;
+  ${label(PAD_X, 420, "CONTRIBUTION STREAM", { size: 8.5, ls: 1.8 })}
+  ${label(RIGHT, 420, `${contrib.total} THIS YEAR`, { size: 8.5, ls: 1.2, fill: T.textSoft, anchor: "end" })}
+  <line x1="${PAD_X}" y1="486" x2="${PAD_X + 26 * 15 - 6}" y2="486" stroke="${T.greenDeep}" stroke-width="2"/>
+  ${bars}
+  ${tagChips}
 
-  return { h: 600, body };
+  ${label(PAD_X, 528, "> status: available for collaboration", { size: 9, ls: 0.4, fill: T.textDim })}`;
 }
 
-/* ───────────────────────── SEKSI: STACK ───────────────────────── */
-
-const TECH = [
-  "TypeScript", "JavaScript", "React", "Next.js", "Tailwind",
-  "Supabase", "PostgreSQL", "Prisma", "Node.js",
-  "PHP", "Laravel", "C#", ".NET",
-  "Three.js", "Playwright", "LaTeX", "Git", "GitHub Actions",
-];
-
-function stackSection() {
-  const H = 40;
-  const GAP = 12;
-  const PAD = 20;
-  let x = 54;
-  let y = 108;
-  let out = "";
-  let i = 0;
-
-  for (const name of TECH) {
-    const w = Math.round(name.length * 7.4 + PAD * 2);
-    if (x + w > 846) {
-      x = 54;
-      y += H + GAP;
-    }
-    // chip: border 2px + hard shadow kecil (2px 2px 0)
-    // Tiap chip melayang dengan fase sendiri, jadi barisannya seperti riak.
-    const chip = `<g>
-      <rect x="${x + 2}" y="${y + 2}" width="${w}" height="${H}" rx="4" fill="${T.shadowHard}"/>
-      <rect x="${x}" y="${y}" width="${w}" height="${H}" rx="4" fill="${T.panel}"
-            stroke="${T.border}" stroke-width="2"/>
-      <text x="${x + PAD}" y="${y + H / 2 + 4.6}" font-family='${FF_MONO}' font-size="12" font-weight="700"
-            fill="${T.textSoft}" letter-spacing="0.4">${esc(name)}</text>
-    </g>`;
-    out += impact(bob(chip, { dur: 5.5 + (i % 4) * 0.7, amp: 2.4, delay: (i % 7) * 0.45 }), x + w / 2, y + H / 2);
-    x += w + GAP;
-    i++;
-  }
-
-  const body = `
-${impact(breathe(sectionLabel(54, 52, "// ACTIVE STACK"), { dur: 4.6, delay: 0.4 }), 240, 52)}
-${impact(sway(
-    `<text x="54" y="86" font-family='${FF_HEAD}' font-size="30" font-weight="700"
-      fill="${T.text}" letter-spacing="-1">My Tech Arsenal</text>`,
-    { dur: 12, amp: 2 }
-  ), 310, 86)}
-${out}`;
-
-  return { h: y + H + 28, body };
+function footer() {
+  const y = WIN.y + WIN.h - FOOT_H;
+  return `
+  <rect x="${WIN.x}" y="${y}" width="${WIN.w}" height="${FOOT_H}" fill="${T.bar}"/>
+  <line x1="${WIN.x}" y1="${y}" x2="${WIN.x + WIN.w}" y2="${y}" stroke="${T.greenDark}" stroke-width="2"/>
+  ${label(WIN.x + 20, y + 24, "LAMPUNG, ID", { size: 9.5, ls: 1.6, fill: T.text })}
+  ${label(WIN.x + 300, y + 24, "GPS: -5.35 / 105.26", { size: 8.5, ls: 1.2, fill: T.textSoft })}
+  ${label(WIN.x + WIN.w - 20, y + 24, `LAST COMMIT: ${LAST_COMMIT}`, { size: 8.5, ls: 1.2, fill: T.textSoft, anchor: "end" })}`;
 }
 
-/* ───────────────────────── SEKSI: LINKS ───────────────────────── */
-
-function linksSection() {
-  const items = [
-    { label: "github.com/Belliond", href: "https://github.com/Belliond" },
-    { label: "virst132109@gmail.com", href: "mailto:virst132109@gmail.com" },
-    { label: "task-vault", href: "https://belliond.github.io/task-vault/" },
-  ];
-
-  let x = 54;
-  let out = "";
-  let i = 0;
-  for (const it of items) {
-    const w = Math.round(it.label.length * 7.2 + 44);
-    const btn = `<a href="${it.href}" target="_blank">
-    <rect x="${x + 3}" y="33" width="${w}" height="38" rx="4" fill="${T.shadowHard}"/>
-    <rect x="${x}" y="30" width="${w}" height="38" rx="4" fill="${T.panel}"
-          stroke="${T.borderBright}" stroke-width="2"/>
-    <text x="${x + 22}" y="54.4" font-family='${FF_MONO}' font-size="12" font-weight="700"
-          fill="${T.textSoft}" letter-spacing="0.3">${esc(it.label)}</text>
-  </a>`;
-    out += impact(bob(btn, { dur: 6 + i * 0.9, amp: 2.6, delay: i * 0.7 }), x + w / 2, 52);
-    x += w + 14;
-    i++;
-  }
-
-  const body = `
-${out}
-${impact(breathe(
-    `<text x="846" y="54.4" text-anchor="end" font-family='${FF_MONO}' font-size="11" font-weight="700"
-      fill="${T.textSoft}" letter-spacing="1.6">BUILT · BROKEN · REBUILT</text>`,
-    { dur: 5.5, from: 0.5, to: 1, delay: 1.5 }
-  ), 730, 54)}`;
-
-  return { h: 104, body };
+function windowFrame() {
+  return `
+  <rect x="${WIN.x + 7}" y="${WIN.y + 7}" width="${WIN.w}" height="${WIN.h}" fill="${T.greenDeep}"/>
+  <rect x="${WIN.x}" y="${WIN.y}" width="${WIN.w}" height="${WIN.h}" fill="${T.panel}" stroke="${T.greenDark}" stroke-width="${T.borderW}"/>
+  ${titleBar()}
+  ${leftPanel()}
+  ${rightPanel()}
+  ${footer()}`;
 }
 
-/* ───────────────────────── GABUNGKAN ───────────────────────── */
+/* ─────────────────────── LATAR ─────────────────────── */
 
-const SECTIONS = [];
-for (const build of [heroSection, stackSection, linksSection]) {
-  const firstImpact = IMPACTS.length;
-  const section = build();
-  section.impactRange = [firstImpact, IMPACTS.length];
-  SECTIONS.push(section);
-}
-const SECTION_GAP = 40;
-const BOTTOM_PAD = 28;
-
-let y = 0;
-let inner = "";
-for (const s of SECTIONS) {
-  for (let i = s.impactRange[0]; i < s.impactRange[1]; i++) IMPACTS[i].y += y;
-  // pemisah tipis antar seksi, kecuali sebelum seksi pertama
-  if (y > 0) {
-    inner += marchingLine(54, y - SECTION_GAP / 2, 846, y - SECTION_GAP / 2, {
-      color: T.border,
-      width: 1,
-      dash: "8 8",
-      dur: 4,
-      opacity: 0.45,
-    }) + "\n";
-  }
-  inner += `<g transform="translate(0,${y})">${s.body}</g>\n`;
-  y += s.h + SECTION_GAP;
+function backdrop() {
+  return `
+  <rect width="${W}" height="${H}" fill="${T.bg}"/>
+  <rect width="${W}" height="${H}" fill="url(#grid)"/>
+  <rect x="0" y="0" width="${W}" height="${H}" fill="url(#vignette)"/>`;
 }
 
-const TOTAL_H = y - SECTION_GAP + BOTTOM_PAD;
-const route = buildPath(900, TOTAL_H);
-const impacted = applyImpacts(inner, route);
+/* ─────────────────────── RAKIT ─────────────────────── */
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="900" height="${TOTAL_H}" viewBox="0 0 900 ${TOTAL_H}" role="img" aria-label="Krisna D. Cristian — GitHub profile">
+const route = buildPath(W, H);
+
+const content = `
+  ${tape()}
+  ${header()}
+  ${windowFrame()}
+  <text x="872" y="600" transform="rotate(-90 872 600)" font-family='${FF_MONO}' font-size="9"
+    fill="${T.greenDark}" letter-spacing="3.4" opacity="0.75">SECURED / SECURE // ONLINE</text>`;
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Krisna D. Cristian — developer profile card">
 <defs>
   ${FONT_DEFS}
-  <linearGradient id="snakeGrad" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0%" stop-color="${T.borderBright}"/>
-    <stop offset="50%" stop-color="${T.green}"/>
-    <stop offset="100%" stop-color="${T.cyan}"/>
-  </linearGradient>
-  <radialGradient id="glowGreen" cx="0.5" cy="0.5" r="0.5">
-    <stop offset="0%" stop-color="${T.green}" stop-opacity="0.16"/>
+  <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+    <path d="M24 0 H0 V24" fill="none" stroke="${T.green}" stroke-width="1" opacity="0.07"/>
+  </pattern>
+  <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.75">
+    <stop offset="0%" stop-color="${T.green}" stop-opacity="0.07"/>
     <stop offset="100%" stop-color="${T.green}" stop-opacity="0"/>
   </radialGradient>
-  <!-- .bg-photo: radial-gradient(rgba(77,255,178,0.13) 1.5px, transparent 1.5px) / 28px 28px -->
-  <pattern id="dotField" width="28" height="28" patternUnits="userSpaceOnUse">
-    <circle cx="1.5" cy="1.5" r="1.5" fill="${T.green}" opacity="0.13"/>
-  </pattern>
+  <radialGradient id="lensEdge" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0.62" stop-color="#fff"/>
+    <stop offset="1" stop-color="#000"/>
+  </radialGradient>
   <path id="snake-route" d="${route.d}" fill="none"/>
-  ${impacted.filters}
+  <path id="lens-route" d="${deltaPath(route.points)}" fill="none"/>
+  <!-- clip-path lebih murah daripada mask. Lingkaran klip mengikuti ular;
+       salinan konten di dalamnya memakai lens-route = (I-A)·p sehingga titik
+       di bawah ular tetap di tempatnya, hanya diperbesar/diputar. -->
+  <clipPath id="lensClip" clipPathUnits="userSpaceOnUse">
+    <circle r="${LENS_R}" cx="0" cy="0">
+      <animateMotion dur="${ROUTE_DUR}s" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+    </circle>
+  </clipPath>
 </defs>
 
-<rect width="900" height="${TOTAL_H}" fill="${T.bg}"/>
-<rect width="900" height="${TOTAL_H}" fill="url(#dotField)">
-  <animate attributeName="opacity" values="1;0.72;1" dur="7s" repeatCount="indefinite"/>
-</rect>
-<ellipse cx="450" cy="470" rx="440" ry="170" fill="url(#glowGreen)">
-  <animate attributeName="opacity" values="0.65;1;0.65" dur="8s" repeatCount="indefinite"/>
-</ellipse>
+${backdrop()}
 
-${impacted.inner}
+<g id="card-content">${content}
+</g>
+
+<!-- Distorsi = lensa pembesar yang bergerak bersama ular. Isi kartu tidak
+     pernah hilang: hanya bagian yang dilewati ular yang tampak tertekuk. -->
+<g clip-path="url(#lensClip)">
+  <g transform="rotate(${LENS_ROT}) scale(${LENS_SCALE})" opacity="1">
+    <use href="#card-content" xlink:href="#card-content"/>
+    <animateMotion dur="${ROUTE_DUR}s" repeatCount="indefinite"><mpath href="#lens-route" xlink:href="#lens-route"/></animateMotion>
+  </g>
+  <circle r="${LENS_R}" fill="${T.green}" opacity="0.05">
+    <animateMotion dur="${ROUTE_DUR}s" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+  </circle>
+</g>
+<circle r="${LENS_R - 4}" fill="none" stroke="${T.green}" stroke-width="2" opacity="0.7">
+  <animateMotion dur="${ROUTE_DUR}s" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+</circle>
+<circle r="${LENS_R - 12}" fill="none" stroke="${T.green}" stroke-width="1" opacity="0.25">
+  <animateMotion dur="${ROUTE_DUR}s" repeatCount="indefinite"><mpath href="#snake-route" xlink:href="#snake-route"/></animateMotion>
+</circle>
+
 ${snake(route)}
 </svg>
 `;
 
 mkdirSync("assets", { recursive: true });
-writeFileSync("assets/profile.svg", svg);
+// Buang spasi ekor baris supaya diff/commit tetap bersih.
+const output = svg.replace(/[ \t]+$/gm, "");
+writeFileSync("assets/profile.svg", output);
 
-console.log("✓ assets/profile.svg", `900x${TOTAL_H}`);
-console.log("  font disematkan:", Math.round((FONT_GROTESK.length + FONT_MONO400.length + FONT_MONO700.length) / 1024), "KB base64");
-console.log("  kontribusi     :", contrib.total);
-console.log("  snake pattern  :", route.points.length, "waypoints ·", impacted.impacted, "impact zones ·", SEGMENTS, "segments");
+const kb = Math.round(Buffer.byteLength(output) / 1024);
+console.log("✓ assets/profile.svg", `${W}x${H}`, `· ${kb} KB`);
+console.log("  snake :", route.points.length, "waypoints ·", SEGMENTS, "segments ·", `${ROUTE_DUR}s/loop`);
+console.log("  distorsi: 1 lensa (tanpa filter) · data:", contrib.total, "kontribusi");

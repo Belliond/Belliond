@@ -48,20 +48,34 @@ const size = svg.match(/<svg\b[^>]*width="(\d+)"[^>]*height="(\d+)"[^>]*viewBox=
 if (!size || size[3] !== `0 0 ${size[1]} ${size[2]}`) fail("SVG dimensions/viewBox are invalid.");
 const height = Number(size[2]);
 const segments = [...svg.matchAll(/data-role="snake-segment"/g)];
-if (segments.length !== 26) fail(`Expected 26 animated snake segments; found ${segments.length}.`);
+if (segments.length !== 12) fail(`Expected 12 animated snake segments; found ${segments.length}.`);
 if (!svg.includes('<path id="snake-route"') || !/<animateMotion\b[^>]*dur="112s"/.test(svg)) fail("Snake route or variable-motion animation is missing.");
 const head = svg.match(/data-segment-index="0"[^>]*>[\s\S]*?<animateMotion\b[^>]*begin="([^"]+)"/);
-const tail = svg.match(/data-segment-index="25"[^>]*>[\s\S]*?<animateMotion\b[^>]*begin="([^"]+)"/);
+const tail = svg.match(/data-segment-index="11"[^>]*>[\s\S]*?<animateMotion\b[^>]*begin="([^"]+)"/);
 if (!head || !tail || Number(head[1].replace("s", "")) !== -112 || Number(tail[1].replace("s", "")) <= -112) fail("Snake tail must trail behind the head along the route.");
 const route = svg.match(/<path id="snake-route" d="([^"]+)"/);
 const routePoints = [...(route?.[1] || "").matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]);
-if (routePoints.length < 500) fail("Snake route is missing its varied interior path.");
+if (routePoints.length < 150) fail("Snake route is missing its varied interior path.");
 const bounds = routePoints.reduce((b, [x, y]) => ({ minX: Math.min(b.minX, x), maxX: Math.max(b.maxX, x), minY: Math.min(b.minY, y), maxY: Math.max(b.maxY, y) }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
 if (bounds.minX > 40 || bounds.maxX < 860 || bounds.minY > 64 || bounds.maxY < height - 64) fail("Snake route does not sweep across the card and interior.");
-const impactTargets = [...svg.matchAll(/data-role="impact-target"/g)];
-if (impactTargets.length < 50 || !svg.includes("<feDisplacementMap") || !svg.includes("attributeName=\"opacity\" values=\"1;0.28;0.04;0.3;1;1\"") || !svg.includes("keyTimes=\"0;0.02;0.05;0.07;0.09;1\"")) fail("Snake collision distortion/restore effects are missing.");
+
+// Distorsi: lensa (clip-path) di atas salinan konten, bukan elemen yang dihapus.
+if (!svg.includes('<clipPath id="lensClip"') || !/<use\b[^>]*href="#card-content"/.test(svg) || !svg.includes('id="card-content"')) fail("Distortion lens over a copy of the card content is missing.");
+if (!/<animateMotion\b[^>]*dur="112s"[^>]*><mpath href="#lens-route"/.test(svg)) fail("Distortion lens is not following the snake.");
+if (!svg.includes('clip-path="url(#lensClip)"')) fail("Distortion lens is not clipped.");
+
+// Anggaran performa: tanpa filter dan animasi seminimal mungkin (penyebab lag di HP).
+if (/<filter\b|feTurbulence|feDisplacementMap/.test(svg)) fail("SVG filters are banned: they make the card lag on mobile.");
+const animations = [...svg.matchAll(/<animate(?:Transform|Motion)?\b/g)];
+if (animations.length > 30) fail(`Too many animations (${animations.length}); keep the card light for mobile.`);
+const bytes = Buffer.byteLength(svg);
+if (bytes > 200 * 1024) fail(`SVG is ${Math.round(bytes / 1024)} KB; keep it under 200 KB for mobile.`);
+
 const textContent = [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) => m[1].replace(/<[^>]*>/g, " ").replace(/&(?:amp|lt|gt|quot|apos);/g, " ").trim()).join(" ");
-if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|\b(?:kontribusi|hari|streak terbaik|peta|sinyal|sedikit|banyak|yang kupakai|dibangun|diperbaiki|dipakai|teknik informatika|sumatera)\b/i.test(textContent)) fail("Visible profile copy must be English-only.");
+if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|\b(?:kontribusi|hari|streak terbaik|peta|sinyal|sedikit|banyak|yang kupakai|dibangun|diperbaiki|dipakai|teknik informatika|sumatera|dan|dengan)\b/i.test(textContent)) fail("Visible profile copy must be English-only.");
+for (const required of ["ROOT ACCESS GRANTED", "DEVELOPER PROFILE", "PROFILE.EXE", "SYSTEM ONLINE", "VERIFIED", "FOLLOW", "CONTRIBUTION STREAM", "THREAT LEVEL"]) {
+  if (!textContent.includes(required)) fail(`Missing profile element: ${required}`);
+}
 if ((svg.match(/data:font\/woff2;base64,/g) || []).length !== 3) fail("Expected all three embedded fonts.");
 for (const [, file] of readme.matchAll(/assets\/([a-z-]+\.svg)/g)) if (!svg || !readFileSync(`assets/${file}`, "utf8")) fail(`README SVG is missing: ${file}`);
 const { createHash } = await import("node:crypto");
@@ -77,4 +91,4 @@ for (const tag of tags) {
 if (stack.length) fail(`Unclosed SVG tag: ${stack.at(-1)}`);
 
 console.log(`✓ data ${contrib.total} contributions · ${contrib.active} active days · best streak ${contrib.best} · current ${contrib.cur}`);
-console.log(`✓ SVG 900x${height} · ${segments.length} segments, ${impactTargets.length} collision zones, English-only text · embedded fonts and balanced tags`);
+console.log(`✓ SVG 900x${height} · ${segments.length} snake segments, ${animations.length} animations, ${Math.round(bytes / 1024)} KB, no filters · English-only text`);
