@@ -779,7 +779,7 @@
   "total": 158,
   "active": 22,
   "best": 4,
-  "cur": 4,
+  "cur": 0,
   "cells": [
     {
       "date": "2025-11-23",
@@ -3700,6 +3700,14 @@
       "level": 2,
       "id": "contribution-day-component-0-52",
       "count": 2
+    },
+    {
+      "date": "2026-11-23",
+      "dow": 1,
+      "week": 52,
+      "level": 0,
+      "id": "contribution-day-component-1-52",
+      "count": 0
     }
   ]
 }
